@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radar-deployment-optimization"
+version = "1.0.0"
+description = "Radar network deployment optimization with MOPSO-DT algorithm"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "云发鹏", email = ""},
+]
+keywords = ["radar", "optimization", "mopso", "decomposition", "multi-objective"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+dependencies = [
+    "numpy>=2.0.0,<3.0.0",
+    "shapely>=2.0.0,<3.0.0",
+    "matplotlib>=3.8.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+performance = [
+    "numba>=0.58.0,<1.0.0",
+    "scipy>=1.10.0,<2.0.0",
+]
+dev = [
+    "pytest>=7.0.0,<10.0.0",
+    "pytest-cov>=4.0.0,<5.0.0",
+    "coverage>=7.0.0,<8.0.0",
+    "flake8>=7.0.0,<8.0.0",
+    "pylint>=3.0.0,<5.0.0",
+    "radon>=6.0.0,<7.0.0",
+    "mypy>=1.8.0,<2.0.0",
+]
+
+[project.urls]
+"Homepage" = ""
+"Bug Tracker" = ""
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.txt"]
+
+# 代码质量工具配置
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [".venv", "__pycache__", ".pytest_cache", "build", "dist"]
+
+[tool.pylint."MESSAGES CONTROL"]
+disable = [
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "too-many-arguments",
+    "too-many-locals",
+    "too-many-statements",
+]
+max-line-length = 100
+
+[tool.mypy]
+python_version = "3.14"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "performance: performance-related tests",
+]
