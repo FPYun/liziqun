@@ -4,7 +4,7 @@
 
 from shapely.geometry import Polygon, MultiPolygon
 from src.decomposition import DeploymentRegionDecomposer
-from src.visualize import DecompositionVisualizer, RegionVisualizer
+from src.region_visualizer import DecompositionVisualizer, RegionVisualizer
 import matplotlib.pyplot as plt
 
 

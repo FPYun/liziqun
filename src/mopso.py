@@ -15,6 +15,7 @@ from typing import Tuple, List, Dict, Callable, Optional, Union
 from dataclasses import dataclass
 from copy import deepcopy
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from .exceptions import (
     MOPSOError,
@@ -96,7 +97,11 @@ class MOPSO_DT(LogMixin):
         archive_size: int = 100,
         verbose: bool = True,
         log_level: int = logging.INFO,
-        use_batch_update: bool = True
+        use_batch_update: bool = True,
+        n_workers: int = 1,
+        w_strategy: str = 'legacy',
+        p_m_base: float = 0.0,
+        select_gb: str = 'random'
     ):
         """
         初始化 MOPSO-DT 优化器
@@ -114,6 +119,9 @@ class MOPSO_DT(LogMixin):
             verbose: 是否显示详细进度
             log_level: 日志级别
             use_batch_update: 是否使用批量更新二进制变量（性能优化）
+            w_strategy: 惯性权重策略 ('legacy'=0.4→0.0, 'standard'=0.9→0.4, 'adaptive'=自适应)
+            p_m_base: 变异概率下限 (0=使用原始公式 w/N_P)
+            select_gb: 全局最优选择策略 ('random'=随机, 'crowding'=拥挤度加权)
         """
         super().__init__()
 
@@ -125,6 +133,9 @@ class MOPSO_DT(LogMixin):
         if use_batch_update and not NUMBA_AVAILABLE:
             self.log_warning("Numba 不可用，批量更新已禁用")
 
+        # 并行评估设置
+        self.n_workers = max(1, n_workers)
+
         self.J = J
         self.N_bin = N_bin
         self.evaluate_func = evaluate_func
@@ -135,6 +146,9 @@ class MOPSO_DT(LogMixin):
         self.p_c = p_c
         self.archive_size = archive_size
         self.verbose = verbose
+        self.w_strategy = w_strategy
+        self.p_m_base = p_m_base
+        self.select_gb = select_gb
 
         # 设置日志级别
         self.logger.setLevel(log_level)
@@ -199,6 +213,7 @@ class MOPSO_DT(LogMixin):
         self.log_info("=" * 70)
         self.log_info(f"参数配置: J={self.J}, N_bin={self.N_bin}, N_P={self.N_P}, T_max={self.T_max}")
         self.log_info(f"学习因子: c_1={self.c_1}, c_2={self.c_2}, 交叉概率: p_c={self.p_c}")
+        self.log_info(f"惯性策略: {self.w_strategy}, 变异下限: {self.p_m_base}, 选择策略: {self.select_gb}")
         self.log_info(f"性能优化: Numba={NUMBA_AVAILABLE}, 批量更新={self.use_batch_update}")
 
         if self.verbose:
@@ -212,9 +227,11 @@ class MOPSO_DT(LogMixin):
             print(f"  最大迭代次数 T_max: {self.T_max}")
             print(f"  学习因子: c_1={self.c_1}, c_2={self.c_2}")
             print(f"  交叉概率 p_c: {self.p_c}")
+            print(f"  惯性策略: {self.w_strategy}, 变异下限: {self.p_m_base}, 选择策略: {self.select_gb}")
             print(f"  档案大小限制: {self.archive_size}")
             print(f"  性能优化: Numba={'启用' if NUMBA_AVAILABLE else '未启用'}, "
-                  f"批量更新={'启用' if self.use_batch_update else '未启用'}")
+                  f"批量更新={'启用' if self.use_batch_update else '未启用'}, "
+                  f"并行线程={self.n_workers}")
             print("-" * 70)
 
         try:
@@ -335,14 +352,12 @@ class MOPSO_DT(LogMixin):
         self.log_info("开始初始评估...")
 
         failed_count = 0
+
         for idx, particle in enumerate(self.particles):
             try:
-                # 评估目标函数
                 objectives = self._evaluate_particle(particle, particle_idx=idx)
                 particle.objectives = objectives
                 particle.pb_objectives = objectives.copy()
-
-                # 加入档案
                 self._add_to_archive(
                     particle.position_continuous.copy(),
                     particle.position_binary.copy(),
@@ -351,7 +366,6 @@ class MOPSO_DT(LogMixin):
             except EvaluationError as e:
                 failed_count += 1
                 self.log_warning(f"粒子 {idx} 评估失败: {e}")
-                # 为失败的粒子设置默认值
                 particle.objectives = np.array([0.0, float('inf')])
                 particle.pb_objectives = particle.objectives.copy()
 
@@ -420,6 +434,53 @@ class MOPSO_DT(LogMixin):
                 raise
             self.log_error(f"评估粒子{particle_idx}时出错: {str(e)}")
             raise EvaluationError(f"评估失败: {str(e)}", particle_idx=particle_idx) from e
+
+    def _evaluate_particles_parallel(self, particles: List[Particle]) -> List[Tuple[Optional[np.ndarray], Optional[str]]]:
+        """并行评估多个粒子，按批次分组到各线程，返回 (objectives, error) 列表"""
+        n = len(particles)
+        if self.n_workers <= 1 or n <= self.n_workers:
+            # 粒子太少，直接串行
+            results = []
+            for idx, particle in enumerate(particles):
+                try:
+                    objectives = self._evaluate_particle(particle, particle_idx=idx)
+                    results.append((objectives, None))
+                except Exception as e:
+                    results.append((None, str(e)))
+            return results
+
+        # 把粒子分成 n_workers 组，每组在一个线程里串行评估
+        chunks = np.array_split(np.arange(n), self.n_workers)
+        all_results = [None] * n
+
+        def _eval_batch(indices):
+            for idx in indices:
+                try:
+                    objectives = self._evaluate_particle(particles[idx], particle_idx=idx)
+                    all_results[idx] = (objectives, None)
+                except Exception as e:
+                    all_results[idx] = (None, str(e))
+
+        with ThreadPoolExecutor(max_workers=self.n_workers) as executor:
+            list(executor.map(_eval_batch, chunks))
+
+        return all_results
+
+    def _update_particle_best(self, particle: Particle, new_objectives: np.ndarray):
+        """更新粒子的个体最优 pb"""
+        if particle.pb_objectives is None:
+            particle.pb_continuous = particle.position_continuous.copy()
+            particle.pb_binary = particle.position_binary.copy()
+            particle.pb_objectives = new_objectives.copy()
+        elif self._dominates(new_objectives, particle.pb_objectives):
+            particle.pb_continuous = particle.position_continuous.copy()
+            particle.pb_binary = particle.position_binary.copy()
+            particle.pb_objectives = new_objectives.copy()
+        elif not self._dominates(particle.pb_objectives, new_objectives):
+            if np.random.random() < 0.5:
+                particle.pb_continuous = particle.position_continuous.copy()
+                particle.pb_binary = particle.position_binary.copy()
+                particle.pb_objectives = new_objectives.copy()
 
     def _build_decision_matrix(
         self,
@@ -588,20 +649,32 @@ class MOPSO_DT(LogMixin):
 
     def _select_global_best(self):
         """
-        从外部档案中随机选择全局最优解 gb
+        从外部档案中选择全局最优解 gb
 
         策略：
-        - 从档案中随机选择一个非劣解作为全局最优
-        - 这样可以增加多样性，避免过早收敛
-        - 也可以根据拥挤度加权选择（拥挤度大的被选概率高）
+        - 'random': 随机选择一个非劣解
+        - 'crowding': 拥挤度加权轮盘赌（拥挤度大的被选概率高，促进多样性）
         """
         if not self.archive:
             return
 
-        # 简单随机选择（可改为基于拥挤度的加权选择）
-        idx = np.random.randint(0, len(self.archive))
-        selected = self.archive[idx]
+        if self.select_gb == 'crowding' and len(self.archive) > 2:
+            distances = self._calculate_crowding_distance()
+            # 将 inf 替换为一个大有限值，避免 NaN
+            finite_max = np.max(distances[np.isfinite(distances)]) if np.any(np.isfinite(distances)) else 1.0
+            distances = np.where(np.isfinite(distances), distances, finite_max * 10)
+            total = distances.sum()
+            if total > 0:
+                probs = distances / total
+                probs = np.nan_to_num(probs, nan=1.0/len(self.archive))
+                probs = probs / probs.sum()  # 归一化
+                idx = np.random.choice(len(self.archive), p=probs)
+            else:
+                idx = np.random.randint(0, len(self.archive))
+        else:
+            idx = np.random.randint(0, len(self.archive))
 
+        selected = self.archive[idx]
         self.gb_continuous = selected['continuous'].copy()
         self.gb_binary = selected['binary'].copy()
 
@@ -613,11 +686,10 @@ class MOPSO_DT(LogMixin):
         """
         计算动态惯性权重
 
-        公式: w = -0.4 / T_max × t + 0.4
-
-        特点：
-        - 初期（t 小）：w 较大，有利于全局探索
-        - 后期（t 大）：w 较小，有利于局部开发
+        策略：
+        - 'legacy':   w = -0.4/T_max * t + 0.4        (0.4 → 0.0)
+        - 'standard': w = 0.9 - 0.5 * t/T_max          (0.9 → 0.4)
+        - 'adaptive': w = 0.9 - 0.5 * (t/T_max)^0.5    (0.9 → 0.4, 前期下降慢)
 
         Args:
             t: 当前迭代次数
@@ -625,13 +697,18 @@ class MOPSO_DT(LogMixin):
         Returns:
             w: 惯性权重
         """
-        return -0.4 / self.T_max * t + 0.4
+        if self.w_strategy == 'standard':
+            return 0.9 - 0.5 * t / self.T_max
+        elif self.w_strategy == 'adaptive':
+            return 0.9 - 0.5 * (t / self.T_max) ** 0.5
+        else:  # legacy
+            return -0.4 / self.T_max * t + 0.4
 
     def _calculate_mutation_probability(self, w: float) -> float:
         """
         计算动态变异概率
 
-        公式: p_m = w / N_P
+        公式: p_m = max(p_m_base, w / N_P)
 
         Args:
             w: 当前惯性权重
@@ -639,7 +716,7 @@ class MOPSO_DT(LogMixin):
         Returns:
             p_m: 变异概率
         """
-        return w / self.N_P
+        return max(self.p_m_base, w / self.N_P)
 
     # =========================================================================
     # 步骤3: 变量更新
@@ -761,29 +838,9 @@ class MOPSO_DT(LogMixin):
         4. 更新全局档案和 gb
         """
         for particle in self.particles:
-            # 评估新位置
             new_objectives = self._evaluate_particle(particle)
             particle.objectives = new_objectives
-
-            # 更新个体最优 pb
-            if particle.pb_objectives is None:
-                # 首次设置
-                particle.pb_continuous = particle.position_continuous.copy()
-                particle.pb_binary = particle.position_binary.copy()
-                particle.pb_objectives = new_objectives.copy()
-            elif self._dominates(new_objectives, particle.pb_objectives):
-                # 新位置支配原pb，替换
-                particle.pb_continuous = particle.position_continuous.copy()
-                particle.pb_binary = particle.position_binary.copy()
-                particle.pb_objectives = new_objectives.copy()
-            elif not self._dominates(particle.pb_objectives, new_objectives):
-                # 互不支配，随机选择
-                if np.random.random() < 0.5:
-                    particle.pb_continuous = particle.position_continuous.copy()
-                    particle.pb_binary = particle.position_binary.copy()
-                    particle.pb_objectives = new_objectives.copy()
-
-            # 加入外部档案
+            self._update_particle_best(particle, new_objectives)
             self._add_to_archive(
                 particle.position_continuous.copy(),
                 particle.position_binary.copy(),

@@ -14,7 +14,7 @@ from typing import Tuple, List
 from shapely.geometry import Polygon
 
 from src.mopso import MOPSO_DT, Particle
-from src.coord_transform import transform_coordinates
+from src.coordinate_transform import transform_coordinates
 
 
 # =============================================================================

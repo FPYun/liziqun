@@ -3,7 +3,6 @@ MOPSO-DT 的 pytest 测试套件
 
 运行方式:
     pytest tests/test_mopso_pytest.py -v
-    pytest tests/test_mopso_pytest.py -v --cov=src
 """
 
 import numpy as np

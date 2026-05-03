@@ -43,6 +43,8 @@ Thumbs.db
 
 # Project specific
 figures/*.png
+*.pdf
+*.docx
 logs/
 *.log
 .coverage
