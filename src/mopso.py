@@ -101,7 +101,10 @@ class MOPSO_DT(LogMixin):
         n_workers: int = 1,
         w_strategy: str = 'legacy',
         p_m_base: float = 0.0,
-        select_gb: str = 'random'
+        select_gb: str = 'random',
+        epsilon: float = 0.0,
+        use_grid_archive: bool = False,
+        use_poly_mutation: bool = False
     ):
         """
         初始化 MOPSO-DT 优化器
@@ -119,9 +122,12 @@ class MOPSO_DT(LogMixin):
             verbose: 是否显示详细进度
             log_level: 日志级别
             use_batch_update: 是否使用批量更新二进制变量（性能优化）
-            w_strategy: 惯性权重策略 ('legacy'=0.4→0.0, 'standard'=0.9→0.4, 'adaptive'=自适应)
+            w_strategy: 惯性权重策略 ('legacy'=0.4→0.0, 'standard'=0.9→0.4, 'adaptive'=自适应, 'fixed'=恒定0.4)
             p_m_base: 变异概率下限 (0=使用原始公式 w/N_P)
             select_gb: 全局最优选择策略 ('random'=随机, 'crowding'=拥挤度加权)
+            epsilon: 存档去重容差 (0=不去重, >0=截断时合并距离<ε的近重复解)
+            use_grid_archive: 使用自适应网格存档 (替代拥挤距离截断，保留边界解)
+            use_poly_mutation: 对连续变量使用多项式变异 (SMPSO风格，增强局部逃逸)
         """
         super().__init__()
 
@@ -149,6 +155,9 @@ class MOPSO_DT(LogMixin):
         self.w_strategy = w_strategy
         self.p_m_base = p_m_base
         self.select_gb = select_gb
+        self.epsilon = epsilon
+        self.use_grid_archive = use_grid_archive
+        self.use_poly_mutation = use_poly_mutation
 
         # 设置日志级别
         self.logger.setLevel(log_level)
@@ -214,7 +223,7 @@ class MOPSO_DT(LogMixin):
         self.log_info(f"参数配置: J={self.J}, N_bin={self.N_bin}, N_P={self.N_P}, T_max={self.T_max}")
         self.log_info(f"学习因子: c_1={self.c_1}, c_2={self.c_2}, 交叉概率: p_c={self.p_c}")
         self.log_info(f"惯性策略: {self.w_strategy}, 变异下限: {self.p_m_base}, 选择策略: {self.select_gb}")
-        self.log_info(f"性能优化: Numba={NUMBA_AVAILABLE}, 批量更新={self.use_batch_update}")
+        self.log_info(f"epsilon: {self.epsilon}, 性能优化: Numba={NUMBA_AVAILABLE}, 批量更新={self.use_batch_update}")
 
         if self.verbose:
             print("=" * 70)
@@ -228,12 +237,14 @@ class MOPSO_DT(LogMixin):
             print(f"  学习因子: c_1={self.c_1}, c_2={self.c_2}")
             print(f"  交叉概率 p_c: {self.p_c}")
             print(f"  惯性策略: {self.w_strategy}, 变异下限: {self.p_m_base}, 选择策略: {self.select_gb}")
+            print(f"  网格存档: {self.use_grid_archive}, 多项式变异: {self.use_poly_mutation}")
             print(f"  档案大小限制: {self.archive_size}")
             print(f"  性能优化: Numba={'启用' if NUMBA_AVAILABLE else '未启用'}, "
                   f"批量更新={'启用' if self.use_batch_update else '未启用'}, "
                   f"并行线程={self.n_workers}")
             print("-" * 70)
 
+        self.t = 0  # 迭代计数器初始化
         try:
             # 步骤1: 初始化
             self._initialize()
@@ -243,6 +254,7 @@ class MOPSO_DT(LogMixin):
 
             # 步骤3: 主循环迭代
             for t in range(1, self.T_max + 1):
+                self.t = t  # 当前迭代轮次（供网格存档等方法使用）
                 # 计算动态参数
                 w = self._calculate_inertia_weight(t)
                 p_m = self._calculate_mutation_probability(w)
@@ -553,12 +565,8 @@ class MOPSO_DT(LogMixin):
 
     def _nondominated_sorting(self):
         """
-        执行非劣排序，从档案中移除被支配的解
-
-        算法逻辑：
-        1. 遍历档案中的所有解对
-        2. 标记被支配的解
-        3. 只保留非劣解（不被任何其他解支配的解）
+        执行非劣排序，从档案中移除被支配的解。
+        始终使用标准 Pareto 支配关系（不受 epsilon 影响）。
         """
         if len(self.archive) <= 1:
             return
@@ -572,21 +580,18 @@ class MOPSO_DT(LogMixin):
                 if i == j or dominated[j]:
                     continue
 
-                # 检查 i 是否支配 j
                 if self._dominates(
                     self.archive[i]['objectives'],
                     self.archive[j]['objectives']
                 ):
                     dominated[j] = True
-                # 检查 j 是否支配 i
                 elif self._dominates(
                     self.archive[j]['objectives'],
                     self.archive[i]['objectives']
                 ):
                     dominated[i] = True
-                    break  # i 被支配，无需继续检查
+                    break
 
-        # 只保留非劣解
         self.archive = [
             self.archive[i] for i in range(len(self.archive))
             if not dominated[i]
@@ -621,53 +626,147 @@ class MOPSO_DT(LogMixin):
 
     def _maintain_archive(self):
         """
-        维护外部档案：计算拥挤度并按降序排列，删除多余解
+        维护外部档案
 
-        流程：
-        1. 执行非劣排序，确保只保留非劣解
-        2. 如果档案大小超过限制：
-           a. 计算所有解的拥挤度距离
-           b. 按拥挤度降序排列（距离大的优先保留）
-           c. 截断至 archive_size
+        两种模式：
+        - 标准模式：非劣排序 + ε-去重 + 拥挤距离截断
+        - 网格模式 (use_grid_archive=True)：非劣排序 + 自适应网格密度截断
         """
-        # 非劣排序
+        if self.use_grid_archive:
+            self._grid_maintain_archive()
+            return
+
         self._nondominated_sorting()
 
-        # 如果档案大小超过限制，基于拥挤度截断
         if len(self.archive) > self.archive_size:
-            # 计算拥挤度
             distances = self._calculate_crowding_distance()
 
-            # 按拥挤度降序排列（距离大的优先保留）
-            sorted_indices = np.argsort(distances)[::-1]
+            if self.epsilon > 0:
+                # ε-去重：将目标空间距离小于 ε 的解视为同簇，每簇保留拥挤距离最大的
+                objectives = np.array([sol['objectives'] for sol in self.archive])
+                n = len(self.archive)
+                kept = np.ones(n, dtype=bool)
 
-            # 截断档案
-            self.archive = [self.archive[i] for i in sorted_indices[:self.archive_size]]
+                for i in range(n):
+                    if not kept[i]:
+                        continue
+                    for j in range(i + 1, n):
+                        if not kept[j]:
+                            continue
+                        # 如果 i 和 j 在目标空间距离 < ε，移除拥挤距离较小的
+                        diff = np.abs(objectives[i] - objectives[j])
+                        if diff[0] < self.epsilon and diff[1] < self.epsilon:
+                            if distances[i] >= distances[j]:
+                                kept[j] = False
+                            else:
+                                kept[i] = False
+                                break  # i 被移除，跳到下一个 i
 
-            # 记录拥挤度
-            self.history['crowding_distances'].append(distances[sorted_indices[:self.archive_size]])
+                # 应用去重
+                kept_indices = np.where(kept)[0]
+                self.archive = [self.archive[i] for i in kept_indices]
+                distances = distances[kept_indices]
+
+            # 如果仍超过限制，按拥挤距离降序截断
+            if len(self.archive) > self.archive_size:
+                sorted_indices = np.argsort(distances)[::-1]
+                self.archive = [self.archive[i] for i in sorted_indices[:self.archive_size]]
+                self.history['crowding_distances'].append(
+                    distances[sorted_indices[:self.archive_size]])
+            else:
+                self.history['crowding_distances'].append(distances)
+
+    def _grid_cell_density(self, objectives):
+        """计算自适应网格中各单元的密度"""
+        K = max(5, min(15, int(5 + 10 * self.t / max(1, self.T_max))))
+        f_min = objectives.min(axis=0)
+        f_max = objectives.max(axis=0)
+        f_range = f_max - f_min
+        f_range = np.where(f_range < 1e-10, 1.0, f_range)
+        # 轻微边界扩展
+        f_min = f_min - 0.02 * f_range
+        f_max = f_max + 0.02 * f_range
+        f_range = f_max - f_min
+
+        n = len(objectives)
+        cells = np.zeros(n, dtype=int)
+        for i in range(n):
+            col = min(K - 1, max(0, int((objectives[i, 0] - f_min[0]) / f_range[0] * K)))
+            row = min(K - 1, max(0, int((objectives[i, 1] - f_min[1]) / f_range[1] * K)))
+            cells[i] = row * K + col
+
+        unique_cells, counts = np.unique(cells, return_counts=True)
+        density_map = {c: cnt for c, cnt in zip(unique_cells, counts)}
+        densities = np.array([density_map[c] for c in cells])
+        return cells, densities
+
+    def _grid_maintain_archive(self):
+        """自适应网格存档维护：从最密网格中删除解，自然保留边界解"""
+        self._nondominated_sorting()
+
+        if len(self.archive) > self.archive_size:
+            objectives = np.array([sol['objectives'] for sol in self.archive])
+            _, densities = self._grid_cell_density(objectives)
+
+            distances = self._calculate_crowding_distance()
+            # lexsort: 主键=densities(升), 次键=-distances(升→distances降)
+            # → 低密度、高拥挤距离在前 → 保留前 archive_size 个
+            sort_key = np.lexsort((-distances, densities))
+            keep = sort_key[:self.archive_size]
+            self.archive = [self.archive[i] for i in keep]
+            self.history['crowding_distances'].append(distances[keep])
+
+    def _grid_select_global_best(self):
+        """基于网格密度的 Leader 选择：稀疏单元中的解被选概率更高"""
+        if not self.archive:
+            return
+
+        objectives = np.array([sol['objectives'] for sol in self.archive])
+        _, densities = self._grid_cell_density(objectives)
+
+        # 轮盘赌：概率与 1/density 成正比（密度越低概率越高）
+        inv_density = 1.0 / np.maximum(densities.astype(float), 1.0)
+        total = inv_density.sum()
+        if total > 0:
+            probs = inv_density / total
+            idx = np.random.choice(len(self.archive), p=probs)
+        else:
+            idx = np.random.randint(0, len(self.archive))
+
+        selected = self.archive[idx]
+        self.gb_continuous = selected['continuous'].copy()
+        self.gb_binary = selected['binary'].copy()
+
+        if len(self.archive) > 2:
+            # 记录存档多样性指标
+            distances = self._calculate_crowding_distance()
+            self.history.setdefault('grid_diversity', []).append(float(distances.mean()))
 
     def _select_global_best(self):
         """
         从外部档案中选择全局最优解 gb
 
         策略：
-        - 'random': 随机选择一个非劣解
-        - 'crowding': 拥挤度加权轮盘赌（拥挤度大的被选概率高，促进多样性）
+        - 'random': 随机选择
+        - 'crowding': 拥挤度加权轮盘赌
+        - 网格模式 (use_grid_archive=True): 稀疏网格优先选择
         """
         if not self.archive:
             return
 
+        if self.use_grid_archive:
+            self._grid_select_global_best()
+            return
+
         if self.select_gb == 'crowding' and len(self.archive) > 2:
             distances = self._calculate_crowding_distance()
-            # 将 inf 替换为一个大有限值，避免 NaN
             finite_max = np.max(distances[np.isfinite(distances)]) if np.any(np.isfinite(distances)) else 1.0
             distances = np.where(np.isfinite(distances), distances, finite_max * 10)
             total = distances.sum()
             if total > 0:
                 probs = distances / total
                 probs = np.nan_to_num(probs, nan=1.0/len(self.archive))
-                probs = probs / probs.sum()  # 归一化
+                probs = probs / probs.sum()
                 idx = np.random.choice(len(self.archive), p=probs)
             else:
                 idx = np.random.randint(0, len(self.archive))
@@ -701,6 +800,8 @@ class MOPSO_DT(LogMixin):
             return 0.9 - 0.5 * t / self.T_max
         elif self.w_strategy == 'adaptive':
             return 0.9 - 0.5 * (t / self.T_max) ** 0.5
+        elif self.w_strategy == 'fixed':
+            return 0.4
         else:  # legacy
             return -0.4 / self.T_max * t + 0.4
 
@@ -724,44 +825,59 @@ class MOPSO_DT(LogMixin):
 
     def _update_continuous_variables(self, w: float):
         """
-        更新连续变量（PSO速度-位置更新）
+        更新连续变量（PSO速度-位置更新 + SMPSO风格钳制/变异）
 
-        使用标准PSO公式：
-        v_new = w × v + c_1 × r_1 × (pb - x) + c_2 × r_2 × (gb - x)
-        x_new = x + v_new
+        速度更新使用收缩系数 chi=0.729 (SMPSO):
+        v = chi * [v + c1*r1*(pb-x) + c2*r2*(gb-x)]
 
-        其中：
-        - w: 惯性权重
-        - c_1, c_2: 学习因子
-        - r_1, r_2: [0,1] 之间的随机数
-        - pb: 个体最优位置
-        - gb: 全局最优位置
+        速度钳制: |v| <= v_max = 0.5 (搜索空间[0,1]的一半)
 
-        更新后使用截断（Clipping）确保 x ∈ [0, 1]
-
-        Args:
-            w: 惯性权重
+        多项式变异 (when use_poly_mutation=True):
+        以 p_m=0.1 概率对连续坐标施加扰动
         """
+        chi = 0.729  # SMPSO constriction coefficient
+        v_max = 0.5  # (ub-lb)/2 = (1-0)/2
+
         for particle in self.particles:
-            # 生成随机数（向量化）
             r1 = np.random.uniform(0, 1, size=self.n_continuous)
             r2 = np.random.uniform(0, 1, size=self.n_continuous)
 
-            # 速度更新: v = w*v + c1*r1*(pb - x) + c2*r2*(gb - x)
+            # 速度更新（带收缩系数）
             cognitive = self.c_1 * r1 * (particle.pb_continuous - particle.position_continuous)
             social = self.c_2 * r2 * (self.gb_continuous - particle.position_continuous)
-
-            particle.velocity_continuous = (
-                w * particle.velocity_continuous + cognitive + social
+            particle.velocity_continuous = chi * (
+                particle.velocity_continuous + cognitive + social
             )
 
-            # 位置更新: x = x + v
-            particle.position_continuous = particle.position_continuous + particle.velocity_continuous
+            # 速度钳制
+            particle.velocity_continuous = np.clip(
+                particle.velocity_continuous, -v_max, v_max
+            )
 
-            # 截断操作：确保在 [0, 1] 范围内
+            # 位置更新
+            particle.position_continuous = (
+                particle.position_continuous + particle.velocity_continuous
+            )
+
+            # 边界截断
             particle.position_continuous = np.clip(
                 particle.position_continuous, 0.0, 1.0
             )
+
+            # 多项式变异 (SMPSO style)
+            if self.use_poly_mutation:
+                p_m = 0.1
+                eta = 20.0  # 分布指数
+                for k in range(self.n_continuous):
+                    if np.random.random() < p_m:
+                        x_k = particle.position_continuous[k]
+                        u = np.random.random()
+                        if u < 0.5:
+                            delta = (2 * u) ** (1.0 / (eta + 1)) - 1
+                        else:
+                            delta = 1 - (2 * (1 - u)) ** (1.0 / (eta + 1))
+                        x_k = x_k + delta
+                        particle.position_continuous[k] = np.clip(x_k, 0.0, 1.0)
 
     def _update_binary_variables(self, p_m: float):
         """
@@ -969,6 +1085,99 @@ def example_usage():
         print(f"  解 {i+1}: 覆盖率={objs[i, 0]:.4f}, 干扰={objs[i, 1]:.4f}")
 
     return mopso, archive, stats
+
+
+class MultiRunMOPSO:
+    """
+    多次独立运行 MOPSO 并合并存档，降低随机性，获得更稳定的 Pareto 前沿。
+
+    每次运行使用不同的随机种子，最后将所有存档合并，
+    重新做非劣排序得到统一的 Pareto 前沿。
+    """
+
+    def __init__(self, n_runs: int = 5, **mopso_kwargs):
+        """
+        Args:
+            n_runs: 独立运行次数
+            **mopso_kwargs: 传递给 MOPSO_DT 的参数
+        """
+        self.n_runs = n_runs
+        self.mopso_kwargs = mopso_kwargs
+        self.per_run_archives = []
+        self.per_run_stats = []
+        self.merged_archive = []
+        self.merged_objectives = None
+
+    def optimize(self, verbose: bool = True):
+        """执行多次独立优化并合并存档"""
+        all_solutions = []
+
+        for run in range(self.n_runs):
+            if verbose:
+                try:
+                    print(f"  Run {run+1}/{self.n_runs}...", end=' ', flush=True)
+                except UnicodeEncodeError:
+                    print(f"  Run {run+1}/{self.n_runs}...", end=' ', flush=True)
+
+            mopso = MOPSO_DT(**self.mopso_kwargs)
+            archive, stats = mopso.optimize()
+            self.per_run_archives.append(archive)
+            self.per_run_stats.append(stats)
+
+            for entry in archive:
+                all_solutions.append({
+                    'continuous': entry['continuous'].copy(),
+                    'binary': entry['binary'].copy(),
+                    'objectives': entry['objectives'].copy(),
+                })
+
+            n = len(archive)
+            if verbose:
+                try:
+                    print(f"{n} sols")
+                except UnicodeEncodeError:
+                    pass
+
+        if verbose:
+            try:
+                print(f"\n  Total: {len(all_solutions)} solutions from {self.n_runs} runs")
+            except UnicodeEncodeError:
+                pass
+
+        # 合并后非劣排序
+        self.merged_archive = list(all_solutions)
+        if len(self.merged_archive) > 1:
+            dominated = [False] * len(self.merged_archive)
+            for i in range(len(self.merged_archive)):
+                if dominated[i]:
+                    continue
+                for j in range(len(self.merged_archive)):
+                    if i == j or dominated[j]:
+                        continue
+                    if dominates(self.merged_archive[i]['objectives'],
+                                 self.merged_archive[j]['objectives']):
+                        dominated[j] = True
+                    elif dominates(self.merged_archive[j]['objectives'],
+                                   self.merged_archive[i]['objectives']):
+                        dominated[i] = True
+                        break
+
+            self.merged_archive = [self.merged_archive[i]
+                                   for i, d in enumerate(dominated) if not d]
+
+        if self.merged_archive:
+            self.merged_objectives = np.array(
+                [e['objectives'] for e in self.merged_archive])
+        else:
+            self.merged_objectives = np.empty((0, 2))
+
+        if verbose:
+            try:
+                print(f"  Merged Pareto front: {len(self.merged_archive)} solutions")
+            except UnicodeEncodeError:
+                pass
+
+        return self.merged_archive, self.per_run_stats
 
 
 if __name__ == "__main__":

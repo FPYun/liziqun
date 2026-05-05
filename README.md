@@ -17,7 +17,6 @@ liziqun/
 │   ├── region_visualizer.py         # 区域分解可视化
 │   ├── optimization_utils.py        # 性能优化工具（Numba JIT加速）
 │   ├── grid_evaluator.py            # GPU网格评估
-│   ├── cupy_gpu_fix.py              # CuPy Windows CJK路径修复
 │   ├── logger.py                    # 日志系统
 │   └── exceptions.py                # 异常处理
 │

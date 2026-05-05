@@ -103,6 +103,9 @@ class RadarConfig:
     jammer_G_t_dB: float = 30.0  # 干扰机天线增益 (dB) - 参考论文: 30dB
     use_radar_equation: bool = False  # 是否使用雷达方程模型
 
+    # 干扰有效率 (JCR) 参数
+    J_threshold: float = 1e-5  # 干扰功率密度门限 (W/m^2)，超过此值判定为有效压制
+
 
 @dataclass
 class TaskPoint:
@@ -551,6 +554,64 @@ def calculate_jamming_density(
     return float(np.min(total_power))
 
 
+def calculate_jcr(
+    jammer_positions: np.ndarray,
+    task_points: List[TaskPoint],
+    jammer_configs: List[RadarConfig],
+    convex_polygons: Optional[List[Polygon]] = None,
+    binary_codes: Optional[np.ndarray] = None,
+    continuous_coords: Optional[np.ndarray] = None
+) -> float:
+    """
+    计算干扰有效率 (Jamming Coverage Rate) - GPU 加速版本
+
+    JCR = (1/M) * sum_m I[ P_total(m) >= J_threshold ]
+
+    其中 P_total(m) = sum_j J_power(j, m)，即所有雷达在任务点 m 处的干扰功率之和。
+    仅当总功率超过门限 J_threshold 时，该任务点判定为"被有效压制"。
+
+    与 ECR 的关键区别：
+    - ECR 用 OR 融合（任一雷达覆盖即可），鼓励雷达分散
+    - JCR 用 SUM 融合（需要多台雷达功率叠加才能突破门限），鼓励雷达集中
+    → 产生真正的 Pareto 取舍
+    """
+    M = len(task_points)
+    J = len(jammer_positions)
+    if M == 0 or J == 0:
+        return 0.0
+
+    J_threshold = jammer_configs[0].J_threshold
+
+    # CPU 端预计算
+    radar_xy = _get_radar_physical_positions(
+        jammer_positions, jammer_configs, convex_polygons, binary_codes, continuous_coords
+    )
+    task_xy = np.array([(t.x, t.y) for t in task_points])
+    priorities = np.array([t.priority for t in task_points])
+
+    # 传到 GPU
+    radar_xy_g = _to_gpu(radar_xy)
+    task_xy_g = _to_gpu(task_xy)
+
+    # 计算干扰功率矩阵 (M, J) — 在 GPU 上执行
+    if jammer_configs[0].use_radar_equation:
+        J_mat = _calc_jamming_matrix_radar_eq(radar_xy_g, task_xy_g, jammer_configs)
+    else:
+        J_mat = _calc_jamming_matrix_simple(radar_xy_g, task_xy_g, jammer_configs)
+
+    # SUM 融合：所有雷达在任务点 m 的干扰功率求和
+    P_total = xp.sum(J_mat, axis=1)
+
+    # 传回 CPU
+    P_total = _to_cpu(P_total)
+
+    # 超过门限即为有效压制
+    jammed = (P_total >= J_threshold).astype(float)
+    total_priority = priorities.sum()
+    JCR = float(np.sum(jammed * priorities) / total_priority) if total_priority > 0 else 0.0
+    return JCR
+
+
 # ============================================================================
 # 二进制编码解码
 # ============================================================================
@@ -898,6 +959,56 @@ def normalize_jamming_power(J_min: float, J_max: float = 1.0) -> float:
     return normalized
 
 
+def evaluate_deployment_jcr(
+    Phi: np.ndarray,
+    task_points: List[TaskPoint],
+    radar_configs: List[RadarConfig],
+    convex_polygons: List[Polygon],
+    J: int,
+    N_bin: int,
+) -> np.ndarray:
+    """
+    综合评估函数（JCR 版本）
+
+    目标1: 1 - ECR  （最小化：覆盖率损失）
+    目标2: 1 - JCR  （最小化：干扰有效率损失）
+
+    两个目标现在真正冲突：
+    - ECR 要求雷达分散（每个点至少被1台覆盖）
+    - JCR 要求雷达集中（多点功率叠加才能突破门限）
+
+    Args:
+        Phi: 决策变量矩阵 (J, 2+N_bin)
+        task_points: 任务点列表
+        radar_configs: 雷达/干扰源配置
+        convex_polygons: 凸多边形列表
+        J: 雷达数量
+        N_bin: 编码位数
+
+    Returns:
+        objectives: [1-ECR, 1-JCR] 形状 (2,)
+    """
+    continuous = Phi[:, :2].flatten()
+    binary = Phi[:, 2:2+N_bin]
+
+    positions = decode_particle(continuous, binary, J, N_bin, convex_polygons)
+    positions_array = np.array(positions)
+
+    ECR = calculate_ecr(
+        positions_array, task_points, radar_configs,
+        convex_polygons=convex_polygons, binary_codes=binary,
+        continuous_coords=continuous.reshape(J, 2)
+    )
+
+    JCR = calculate_jcr(
+        positions_array, task_points, radar_configs,
+        convex_polygons=convex_polygons, binary_codes=binary,
+        continuous_coords=continuous.reshape(J, 2)
+    )
+
+    return np.array([1 - ECR, 1 - JCR])
+
+
 def evaluate_deployment_normalized(
     Phi: np.ndarray,
     task_points: List[TaskPoint],
@@ -905,15 +1016,12 @@ def evaluate_deployment_normalized(
     convex_polygons: List[Polygon],
     J: int,
     N_bin: int,
-    J_max_ref: float = 0.01  # 参考最大干扰功率
+    J_max_ref: float = 0.01  # 参考最大干扰功率（旧版 J_min 模式，保留兼容）
 ) -> np.ndarray:
     """
-    综合评估函数（归一化版本）
+    综合评估函数（归一化版本，旧版 J_min 模式）
 
-    改进点：
-    1. 对干扰功率密度进行归一化
-    2. 引入尺度因子使两个目标可比
-    3. 增加扰动以产生更多Pareto解
+    保留用于向后兼容。新代码推荐使用 evaluate_deployment_jcr()。
 
     Args:
         Phi: 决策变量矩阵 (J, 2+N_bin)
@@ -927,11 +1035,9 @@ def evaluate_deployment_normalized(
     Returns:
         objectives: [1-ECR, J_norm] 形状 (2,)
     """
-    # 提取连续坐标和二进制编码
     continuous = Phi[:, :2].flatten()
     binary = Phi[:, 2:2+N_bin]
 
-    # 解码得到物理位置
     positions = decode_particle(continuous, binary, J, N_bin, convex_polygons)
     positions_array = np.array(positions)
 
@@ -970,10 +1076,40 @@ def create_normalized_evaluate_function(
     J_max_ref: float = 0.01
 ) -> Callable:
     """
-    创建归一化评估函数的工厂函数
+    创建归一化评估函数的工厂函数（旧版 J_min 模式，保留兼容）
     """
     def evaluate_func(Phi: np.ndarray) -> np.ndarray:
         return evaluate_deployment_normalized(
             Phi, task_points, radar_configs, convex_polygons, J, N_bin, J_max_ref
+        )
+    return evaluate_func
+
+
+def create_jcr_evaluate_function(
+    task_points: List[TaskPoint],
+    radar_configs: List[RadarConfig],
+    convex_polygons: List[Polygon],
+    J: int,
+    N_bin: int,
+) -> Callable:
+    """
+    创建 JCR 评估函数的工厂函数
+
+    返回 (1-ECR, 1-JCR)，两个目标都是 [0,1] 范围，都为最小化。
+    ECR 要求雷达分散，JCR 要求雷达集中 → 真正的多目标冲突。
+
+    Args:
+        task_points: 任务点列表
+        radar_configs: 雷达/干扰源配置（需设置 J_threshold）
+        convex_polygons: 凸多边形列表
+        J: 雷达数量
+        N_bin: 编码位数
+
+    Returns:
+        evaluate_func: Phi -> np.array([1-ECR, 1-JCR])
+    """
+    def evaluate_func(Phi: np.ndarray) -> np.ndarray:
+        return evaluate_deployment_jcr(
+            Phi, task_points, radar_configs, convex_polygons, J, N_bin
         )
     return evaluate_func

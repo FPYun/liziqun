@@ -245,7 +245,10 @@ def visualize_comparison(baseline, improved):
     plt.tight_layout(pad=2)
     save_path = os.path.join(save_dir, 'quick_compare_results.png')
     plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
-    print(f"\n  Figure saved: {save_path}")
+    try:
+        print(f"\n  Figure saved: {save_path}")
+    except UnicodeEncodeError:
+        print(f"\n  Figure saved: {save_path.encode('ascii', errors='replace').decode('ascii')}")
     plt.close()
 
 

@@ -15,6 +15,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.collections import PatchCollection
+
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
+plt.rcParams['axes.unicode_minus'] = False
 from typing import List, Tuple, Dict, Union, Optional
 from shapely.geometry import Polygon, MultiPolygon, Point, LineString
 from shapely.ops import unary_union
