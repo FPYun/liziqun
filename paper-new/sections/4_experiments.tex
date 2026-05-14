@@ -1,0 +1,311 @@
+\section{实验设计与结果分析}
+\label{sec:experiments}
+
+本章通过系统实验验证MOPSO-DT算法在空地协同雷达网络部署优化中的有效性。实验围绕三个核心问题展开：（1）算法能否有效抑制边界效应？（2）空地异构传播模型是否提高了部署方案的合理性？（3）覆盖率与干扰压制效能之间存在怎样的权衡关系？
+
+\subsection{实验设置}
+
+\subsubsection{场景配置}
+
+实验在以下场景下进行，覆盖不同区域规模、传播模型和难度等级：
+
+\begin{table}[t]
+\centering
+\caption{实验场景配置}
+\label{tab:scenarios}
+\begin{tabular}{lccc}
+\toprule
+场景 & 区域规模 & 雷达数 & 传播模型 \\
+\midrule
+Paper-Aligned & 300km$\times$300km & 8 & 雷达方程 \\
+Challenging & 200km$\times$200km & 8 & 指数衰减 ($\beta=0.03$) \\
+Tuning & $\sim$200km$\times$200km & 8 & 指数衰减 ($\beta=0.01$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{雷达方程模型（Paper-Aligned场景）：}采用参考论文4.1节参数---发射功率$P_t = 3$ kW，天线增益$G_t = 50$ dB，信号波长$\lambda = 0.3$ m，目标RCS $\sigma = 0.1$ m$^2$，带宽$B = 15$ MHz，检测因子$D_0 = 12.5$ dB，最大探测距离$R_{\max} = 60$ km，虚警概率$P_{fa} = 10^{-6}$。干扰机参数：发射功率150 W，天线增益30 dB。
+
+\textbf{指数衰减模型（Challenging场景）：}$P_0 = 0.9$，检测阈值$P_{\min} = 0.8$，衰减系数$\beta = 0.03$（该值使覆盖难度显著增大）。
+
+\subsubsection{任务点生成}
+
+任务点在部署区域内采用均匀网格采样生成。Paper-Aligned场景使用10$\times$10网格（100个任务点，网格间距30 km），Challenging场景使用15$\times$15网格（225个任务点），Tuning场景使用20$\times$20网格（400个任务点）。
+
+\subsubsection{MOPSO参数配置}
+
+\begin{table}[t]
+\centering
+\caption{MOPSO-DT参数配置}
+\label{tab:mopso_params}
+\begin{tabular}{lcc}
+\toprule
+参数 & 调优前（原始） & 调优后（推荐） \\
+\midrule
+粒子数 $N_P$ & 20--50 & 50 \\
+最大迭代 $T_{\max}$ & 30--50 & 100--500 \\
+惯性权重策略 & legacy (0.4$\to$0) & standard (0.9$\to$0.4) \\
+认知因子 $c_1$ & 2.0 & 2.0 \\
+社会因子 $c_2$ & 2.0 & 2.0 \\
+基础变异率 $p_m^{\text{base}}$ & 0.0 & 0.01 \\
+全局最优选择 & random & crowding \\
+档案容量 & 100 & 100 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{评价指标}
+
+\begin{itemize}
+    \item \textbf{ECR（有效覆盖率）：}探测概率超过阈值$P_{\min}$的任务点比例
+    \item \textbf{$J_{\min}$（最小等效干扰强度）：}所有任务点中总等效干扰强度的最小值
+    \item \textbf{超体积（HV）：}Pareto前沿综合质量，数值越大越好
+    \item \textbf{间距（Spacing）：}Pareto解分布均匀性，数值越小越好
+    \item \textbf{ECR-$J_{\min}$相关系数：}两目标之间的线性关系强度和方向
+    \item \textbf{运行时间：}完整优化过程的耗时
+\end{itemize}
+
+\subsubsection{实验环境}
+
+所有实验在配备Intel Core i7-13700H CPU @ 2.40GHz、16GB RAM的Windows 11系统上运行。算法实现基于Python 3.13，采用Numba JIT编译加速向量化计算，使用Matplotlib进行可视化。
+
+\subsection{雷达方程模型场景结果}
+
+在Paper-Aligned场景（300km$\times$300km、8部雷达）下，MOPSO-DT（standard + crowding + $p_m=0.01$）运行$T_{\max}=500$次迭代，优化耗时211.9秒。
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/paper_aligned_results.png}
+\caption{Paper-Aligned场景综合结果。（左上）最优ECR部署方案，三角形标注雷达位置；（右上）Pareto前沿分布，颜色表示解序号；（左下）ECR热力图；（右下）$J_{\min}$热力图。}
+\label{fig:paper_aligned_results}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Paper-Aligned场景结果汇总}
+\label{tab:paper_aligned_summary}
+\begin{tabular}{lc}
+\toprule
+指标 & 数值 \\
+\midrule
+Pareto解数量 & 6 \\
+ECR范围 & [0.810, 0.890] \\
+$J_{\min}$范围（等效单位） & [5.48$\times10^{-6}$, 6.56$\times10^{-6}$] \\
+拐点ECR & 0.850 \\
+ECR-$J_{\min}$相关系数 & --0.939 \\
+优化耗时 (s) & 211.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+表\ref{tab:paper_aligned_summary}和图\ref{fig:paper_aligned_results}给出了该场景的详细结果。6个Pareto最优解提供了ECR在81.0\%--89.0\%范围内的覆盖-压制权衡方案。雷达在300km$\times$300km区域内形成了较分散的空间布局，ECR热力图显示覆盖盲区集中在区域角落位置，$J_{\min}$热力图表明压制效能与雷达距离密切相关。
+
+ECR与$J_{\min}$的相关系数为$r = -0.939$，表明在该雷达方程场景下，覆盖效能与最薄弱任务点压制强度之间存在明显的此消彼长关系。其原因在于，提升ECR通常要求节点在空间上分散以覆盖更多任务点，而提升$J_{\min}$则要求增强弱覆盖或弱压制区域的到达强度；在节点数量有限且传播损耗随距离快速衰减的条件下，两类需求会竞争同一组部署资源。
+
+\subsection{挑战性场景结果}
+
+在Challenging场景（200km$\times$200km、衰减系数$\beta=0.03$）下，MOPSO-DT运行$T_{\max}=80$次迭代。
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/13_challenging_scene.png}
+\caption{Challenging场景综合结果。（左上）Pareto前沿分布；（右上）ECR vs $J_{\min}$散点图，颜色对应$f_1$值；（左下）ECR分布直方图；（右下）ECR-$J_{\min}$相关性分析。}
+\label{fig:challenging_scene}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Challenging场景结果汇总}
+\label{tab:challenging_summary}
+\begin{tabular}{lc}
+\toprule
+指标 & 数值 \\
+\midrule
+Pareto解数量 & 15 \\
+ECR范围 & [0.036, 0.204] \\
+$J_{\min}$范围（等效单位） & [0.0054, 0.0101] \\
+拐点ECR & 0.129 \\
+ECR-$J_{\min}$相关系数 & --0.958 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+在$\beta=0.03$的挑战性传播条件下（探测概率随距离衰减更快），ECR范围仅为3.6\%--20.4\%，显著低于Paper-Aligned场景。然而，算法仍成功生成了15个有效Pareto解，且ECR-$J_{\min}$负相关关系依然保持（$r = -0.958$），验证了MOPSO-DT在困难场景下的稳健性。
+
+值得注意的是，Challenging场景下的Pareto解数量（15个）高于Paper-Aligned场景（6个）。这是因为在简化传播模型下，目标函数的计算更高效（无需雷达方程中的指数和对数运算），每轮迭代可探索更多的候选解。同时，较低的ECR值意味着目标空间更广阔，产生更多非支配解的空间。
+
+\subsection{参数调优分析}
+
+为系统评估各参数对算法性能的影响，在$\sim$200km$\times$200km区域进行了6个维度的参数调优实验（$N_P=50$, $T_{\max}=100$），结果汇总于表\ref{tab:tuning_summary}。
+
+\begin{table}[t]
+\centering
+\caption{参数调优结果汇总（最佳组合对比）}
+\label{tab:tuning_summary}
+\begin{tabular}{lcccc}
+\toprule
+参数组合 & HV & Spacing & ECR范围 & $J_{\min}$范围 \\
+\midrule
+legacy + random + $p_m$=0 & 0.0715 & 0.0039 & [0.051, 0.107] & [0.024, 0.067] \\
+standard + random + $p_m$=0 & 0.0718 & 0.0028 & [0.051, 0.109] & [0.026, 0.068] \\
+standard + random + $p_m$=0.01 & 0.0723 & 0.0019 & [0.049, 0.096] & [0.026, 0.068] \\
+\textbf{standard + crowding + $p_m$=0.01} & \textbf{0.0757} & \textbf{0.0018} & [0.049, 0.120] & [0.022, 0.068] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{惯性权重策略影响}
+
+三种惯性权重策略的对比结果见表\ref{tab:inertia_comparison}。
+
+\begin{table}[t]
+\centering
+\caption{惯性权重策略对比}
+\label{tab:inertia_comparison}
+\begin{tabular}{lccc}
+\toprule
+策略 & HV & Spacing & ECR范围 \\
+\midrule
+legacy (0.4$\to$0) & 0.0715 & 0.0039 & [0.051, 0.107] \\
+standard (0.9$\to$0.4) & \textbf{0.0718} & \textbf{0.0028} & [0.051, 0.109] \\
+adaptive (非线性) & 0.0444 & 0.0036 & [0.067, 0.129] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+standard策略在HV上略优于legacy，在Spacing上显著改善（降低28.2\%）。adaptive策略表现最差，HV仅为0.0444，表明过早收敛导致Pareto前沿质量下降。
+
+\subsubsection{全局最优选择策略影响}
+
+crowding拥挤度加权选择相比random随机选择，在HV上提升5.5\%（0.0718$\to$0.0757），在Spacing上改善35.7\%（0.0028$\to$0.0018）。与原始legacy+random基准相比，总HV提升5.9\%。这验证了引导粒子向Pareto前沿稀疏区域移动的策略有效性。
+
+\subsubsection{变异概率影响}
+
+适度的变异概率（$p_m^{\text{base}}=0.01$）有助于维持种群多样性，在HV和Spacing上均优于无变异（$p_m=0$）和过度变异（$p_m \geq 0.03$）的配置。过高的变异概率（0.05）导致HV降至0.0406，表明搜索过程退化为随机搜索。
+
+\subsection{ECR-$J_{\min}$相关性跨场景验证}
+
+表\ref{tab:correlation_summary}汇总了不同场景下的ECR-$J_{\min}$相关系数。
+
+\begin{table}[t]
+\centering
+\caption{跨场景ECR-$J_{\min}$相关系数汇总}
+\label{tab:correlation_summary}
+\begin{tabular}{lcc}
+\toprule
+场景 & 相关系数 $r$ & 样本量 \\
+\midrule
+Paper-Aligned（雷达方程） & --0.939 & 6 \\
+Challenging（$\beta=0.03$） & --0.958 & 15 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+在两种不同的传播模型和场景规模下，ECR与$J_{\min}$之间均表现出强负相关关系（$r < -0.93$）。这一结果说明，在本文测试的有限节点部署场景中，覆盖率扩展与最薄弱区域压制强度之间存在稳定的经验性权衡。该结论不应理解为严格的数学必然性；其普适性仍需通过更多随机种子、场景规模和传播参数组合进一步验证。
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/paper_aligned_correlation.png}
+\caption{Paper-Aligned场景ECR vs $J_{\min}$相关性分析。每个散点代表一个Pareto最优解，黑色虚线为线性回归拟合线（$r=-0.939$）。}
+\label{fig:paper_aligned_correlation}
+\end{figure}
+
+\subsection{与基线方法对比}
+
+表\ref{tab:baseline_comparison}将本文方法与Han等~\cite{Han2025}的基线MOPSO-DT以及现有文献中的其他方法进行了定性对比。
+
+\begin{table}[t]
+\centering
+\caption{与现有方法的对比}
+\label{tab:baseline_comparison}
+\begin{tabular}{lcccc}
+\toprule
+方法 & 边界效应处理 & 异构传播 & 多目标 & 优化效率 \\
+\midrule
+GA（Kirubarajan等） & $\times$ & $\times$ & $\times$ & 低 \\
+NSGA-II~\cite{Chen2023} & $\times$ & $\times$ & $\surd$ & 中 \\
+MOPSO-DT~\cite{Han2025} & $\surd$ & $\times$ & $\surd$ & 中 \\
+\textbf{本文方法} & $\surd$ & $\surd$ & $\surd$ & 高 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+本文方法在MOPSO-DT基础上增加了空地异构传播模型，并通过参数调优（standard + crowding）和Numba JIT加速提升了优化效率和Pareto前沿质量。与原始配置相比，HV提升5.9\%，Spacing改善54\%，运行时间在完整配置下仅为3.5分钟。
+
+\subsection{消融实验}
+
+为验证各组件的独立贡献，在200km$\times$200km、$\beta=0.03$的Challenging场景下开展了三项消融实验。
+
+\subsubsection{传播模型消融：异构 vs 统一}
+
+将空地异构传播模型（A2G $\alpha=2.0$，G2G $\alpha=4.0$）替换为统一路径损耗模型（$\alpha=3.0$），其余参数保持不变。
+
+\begin{table}[t]
+\centering
+\caption{传播模型消融结果对比}
+\label{tab:ablation_prop}
+\begin{tabular}{lccc}
+\toprule
+配置 & Pareto解数 & ECR范围 & $r$ \\
+\midrule
+异构 $\alpha=2.0/4.0$ & 11 & [0.036, 0.213] & --0.993 \\
+统一 $\alpha=3.0$ & 12 & [0.022, 0.218] & --0.972 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+如表\ref{tab:ablation_prop}所示，统一传播模型下Pareto解的数量（12 vs 11）和ECR覆盖范围（0.022--0.218 vs 0.036--0.213）与异构模型相近，但ECR-$J_{\min}$相关性有所减弱（$|r|$从0.993降至0.972）。这表明异构传播模型会改变覆盖率与干扰压制效能之间的权衡结构，其价值主要体现在更贴近A2G/G2G链路差异的建模，而非简单地提升单项指标数值。该消融结果来自单一挑战场景，应作为模型合理性的辅助证据。
+
+\subsubsection{坐标变换消融：有 vs 无}
+
+将垂直交点坐标变换替换为直接在物理空间中优化（粒子坐标直接映射到区域边界内），测试边界效应的抑制效果。
+
+\begin{table}[t]
+\centering
+\caption{坐标变换消融结果对比}
+\label{tab:ablation_transform}
+\begin{tabular}{lccc}
+\toprule
+配置 & Pareto解数 & ECR范围 & 耗时(s) \\
+\midrule
+有坐标变换 & 15 & [0.000, 0.200] & 56.0 \\
+无坐标变换 & 13 & [0.022, 0.204] & 18.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+表\ref{tab:ablation_transform}的结果表明，去除坐标变换后ECR下限从0.000上升至0.022，Pareto解数量从15降至13。有变换时算法能够探索到覆盖率极低的极端解，说明搜索过程可以到达更广的可行边界区域。无变换情况下搜索被限制在区域内部，无法充分探索边界附近的候选部署方案。直接优化虽然速度更快（18.5s vs 56.0s），但以牺牲搜索完备性为代价。
+
+\subsubsection{目标函数消融：归一化 vs 原始}
+
+比较归一化目标函数（$f_2 = J_{\text{ref}}/(J_{\min}+J_{\text{ref}})$）与原始目标函数（$f_2 = 1/J_{\min}$）对Pareto前沿质量的影响。
+
+\begin{table}[t]
+\centering
+\caption{目标函数消融结果对比}
+\label{tab:ablation_norm}
+\begin{tabular}{lccc}
+\toprule
+配置 & Pareto解数 & ECR范围 & $r$ \\
+\midrule
+归一化 $f_2$ & 14 & [0.013, 0.209] & --0.931 \\
+原始 $1/J_{\min}$ & 19 & [0.009, 0.191] & --0.982 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+表\ref{tab:ablation_norm}显示了一个与直觉相反的结果：原始$1/J_{\min}$目标函数产生了更多的Pareto解（19 vs 14），且相关性更强（$|r|=0.982$ vs 0.931）。这是因为在Challenging场景（$\beta=0.03$）下ECR值本身较小（3.6\%--20.4\%），两个目标的量纲差异不如预期严重，$J_{\text{ref}}$的引入反而压缩了目标空间。归一化的价值在量纲差异更大的场景（如雷达方程模型，ECR 81\%--89\%）中更显著。
+
+\subsection{结果讨论}
+
+\subsubsection{边界效应的抑制机制}
+
+坐标变换通过在归一化空间中进行均匀搜索，确保了物理空间边界的充分探索。与直接在物理空间中优化的传统方法相比，本文方法消除了边界区域被欠采样的系统性偏差。
+
+\subsubsection{传播模型选择的影响}
+
+雷达方程模型（Paper-Aligned场景）在相同区域规模下给出了显著更高的ECR（81--89\% vs 4--20\%）。这是因为雷达方程模型包含了天线增益（50 dB）的显著贡献，大幅提高了远距离的探测概率。两种模型具有不同的适用场景：雷达方程模型适用于具有详细雷达参数的工程分析场景，指数衰减模型适用于快速原型验证和算法对比。
+
+\subsubsection{多目标权衡的实际意义}
+
+ECR-$J_{\min}$强负相关关系的跨场景观察具有重要的实际意义。在资源有限的战场环境中，指挥官需要根据任务优先级选择Pareto前沿上的特定部署方案：偏向高覆盖率适用于广域监视任务，偏向高干扰压制适用于电子攻击任务。Pareto前沿的多样性为不同任务需求提供了灵活的部署选择空间。

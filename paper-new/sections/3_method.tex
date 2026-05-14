@@ -1,0 +1,264 @@
+\section{问题建模与算法设计}
+\label{sec:method}
+
+本章首先形式化空地协同雷达网络部署优化问题，然后详细描述区域分解、坐标变换和MOPSO-DT优化算法。图~\ref{fig:architecture}给出了整个系统的架构概览。
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/fig_architecture.png}
+\caption{MOPSO-DT系统架构。输入层接受部署区域、雷达参数和任务点；预处理层执行区域凸分解（算法1）和坐标变换（算法2）；优化层通过MOPSO-DT（算法3）迭代评估ECR（覆盖率）和$J_{\min}$（最小等效干扰强度）两个目标，最终输出Pareto最优前沿。}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{系统模型与问题形式化}
+
+\subsubsection{符号定义}
+
+表~\ref{tab:notation}汇总了本文使用的主要数学符号。
+
+\begin{table}[h]
+\centering
+\caption{主要符号定义}
+\label{tab:notation}
+\begin{tabular}{cl}
+\toprule
+符号 & 含义 \\
+\midrule
+$\mathcal{R}$ & 二维部署区域 \\
+$J$ & 雷达/干扰节点数量 \\
+$M$ & 任务点数量 \\
+$\mathbf{x}_j = (x_j, y_j)$ & 第$j$个雷达的物理位置 \\
+$P_0$ & 最大探测概率（近距离） \\
+$\beta$ & 探测概率衰减系数 \\
+$P_{\text{th}}$ & 探测阈值 \\
+$R_{\max}$ & 最大探测距离 \\
+$\alpha_{\text{air}}, \alpha_{\text{ground}}$ & A2G/G2G路径损耗指数 \\
+$\ECR$ & 有效覆盖率 (Effective Coverage Rate) \\
+$\Jmin$ & 最小等效干扰强度 \\
+$J_{\text{ref}}$ & 参考等效干扰强度（归一化） \\
+$N_{\text{bin}}$ & 区域编码位数 \\
+$N_P$ & 粒子数 \\
+$T_{\max}$ & 最大迭代次数 \\
+$w$ & 惯性权重 \\
+$c_1, c_2$ & 认知/社会学习因子 \\
+$p_m$ & 变异概率 \\
+$\mathcal{A}$ & 外部档案（Pareto解集） \\
+HV & 超体积 (Hypervolume) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{部署区域与雷达节点}
+
+考虑一个二维部署区域$\mathcal{R} \subset \R^2$（可为任意多边形，允许包含空洞），需要部署$J$个雷达/电子对抗节点。第$j$个雷达的物理位置为$\mathbf{x}_j = (x_j, y_j) \in \mathcal{R}$，所有雷达位置构成向量$\mathbf{X} = [\mathbf{x}_1, \mathbf{x}_2, \ldots, \mathbf{x}_J]^T \in \R^{J \times 2}$。
+
+\subsubsection{任务点与权重}
+
+在区域$\mathcal{R}$内定义$M$个任务点$\mathcal{T} = \{\mathbf{t}_1, \mathbf{t}_2, \ldots, \mathbf{t}_M\}$，其中$\mathbf{t}_m = (x_m, y_m)$。每个任务点有权重$w_m \geq 0$（默认为1.0），总权重$W = \sum_m w_m$。
+
+\subsubsection{目标函数定义}
+
+\textbf{目标函数1 --- 感知效能（最小化）：}
+
+有效覆盖率（Effective Coverage Rate, ECR）定义为联合探测概率达到阈值$P_{\text{th}}$的任务点比例：
+
+\begin{equation}
+\text{ECR}(\mathbf{X}) = \frac{1}{W} \sum_{m=1}^{M} w_m \cdot \mathbf{1}[P_{\text{joint}}(m) \geq P_{\text{th}}]
+\label{eq:ecr}
+\end{equation}
+
+相应的最小化目标函数为$f_1(\mathbf{X}) = 1 - \text{ECR}(\mathbf{X})$。
+
+\textbf{目标函数2 --- 压制效能（最小化）：}
+
+在所有任务点中，总等效干扰强度的最小值为：
+
+\begin{equation}
+J_{\min}(\mathbf{X}) = \min_{m \in \{1,\ldots,M\}} \sum_{j=1}^{J} J_j(m)
+\label{eq:jmin}
+\end{equation}
+
+该指标反映最薄弱任务点的干扰压制强度，是保证全区域最小压制能力的max-min策略。相应的归一化最小化目标函数为$f_2(\mathbf{X}) = J_{\text{ref}} / (J_{\min}(\mathbf{X}) + J_{\text{ref}})$，其中$J_{\text{ref}}$为参考等效干扰强度。由于该函数关于$J_{\min}$严格单调递减，最小化$f_2$与最大化最薄弱任务点的压制强度等价。
+
+\subsubsection{优化问题形式化}
+
+综合以上定义，空地协同雷达网络部署优化问题可形式化为如下多目标优化问题：
+
+\begin{equation}
+\begin{aligned}
+\min_{\mathbf{X} \in \mathcal{R}^J} \quad & \mathbf{f}(\mathbf{X}) = \left[1 - \text{ECR}(\mathbf{X}), \; \frac{J_{\text{ref}}}{J_{\min}(\mathbf{X}) + J_{\text{ref}}}\right]^T \\
+\text{s.t.} \quad & \mathbf{x}_j \in \mathcal{R}, \quad j = 1, 2, \ldots, J
+\end{aligned}
+\label{eq:optimization_problem}
+\end{equation}
+
+该问题的决策变量为雷达的物理位置$\mathbf{x}_j$，属于连续优化问题。然而，当部署区域$\mathcal{R}$为非凸多边形时，直接优化面临搜索空间边界约束复杂的困难。
+
+\subsection{区域分解算法}
+
+为解决复杂区域约束问题，本文采用基于Hertel-Mehlhorn的区域凸分解算法，将任意多边形$\mathcal{R}$分解为$K$个凸多边形$\mathcal{P} = \{P_1, P_2, \ldots, P_K\}$。
+
+\begin{algorithm}[t]
+\caption{区域凸分解算法}
+\label{alg:decomposition}
+\begin{algorithmic}[1]
+\STATE \textbf{输入：}部署区域多边形$\mathcal{R}$（可含空洞）
+\STATE \textbf{输出：}凸多边形集合$\mathcal{P}$，二进制编码映射
+\STATE 对$\mathcal{R}$进行连通分量分析，分解为$C$个独立区域
+\FOR{$c = 1$ \TO $C$}
+    \STATE 检测区域$c$中的空洞
+    \IF{存在空洞}
+        \STATE 使用双线段切割消除空洞~\cite{Chazelle1982}
+    \ENDIF
+    \STATE 对无空洞多边形进行Delaunay三角剖分
+    \STATE 贪心合并相邻三角形形成凸多边形
+\ENDFOR
+\STATE 为每个凸多边形$P_k$分配唯一的$N_{\text{bin}}$位二进制编码
+\STATE \textbf{返回} $\mathcal{P}, N_{\text{bin}}$
+\end{algorithmic}
+\end{algorithm}
+
+算法1的关键特性包括：时间复杂度$O(n \log n)$（其中$n$为多边形顶点数）；保证输出凸多边形的并集与原区域一致；每个凸多边形获得唯一位二进制编码，便于后续MOPSO中的二进制变量优化。
+
+\subsection{坐标变换}
+
+区域分解后，需要在归一化搜索空间$[0,1]^2$与各凸多边形物理空间之间建立一一映射。本文采用垂直交点法实现该变换。
+
+\begin{algorithm}[t]
+\caption{垂直交点坐标变换}
+\label{alg:coordinate_transform}
+\begin{algorithmic}[1]
+\STATE \textbf{输入：}凸多边形$P_k$，归一化坐标$(\hx, \hy) \in [0,1]^2$
+\STATE \textbf{输出：}物理坐标$(x, y) \in P_k$
+\STATE 计算$P_k$的轴对齐包围盒：$[x_{\min}, x_{\max}] \times [y_{\min}, y_{\max}]$
+\FOR{$\hx$对应的垂直线$x = x_{\min} + \hx \cdot (x_{\max} - x_{\min})$}
+    \STATE 寻找该垂直线与$P_k$边界的所有交点
+\ENDFOR
+\FOR{$\hy$对应的水平线$y = y_{\min} + \hy \cdot (y_{\max} - y_{\min})$}
+    \STATE 寻找该水平线与$P_k$边界的所有交点
+\ENDFOR
+\STATE 在各交点中选择距离$(\hx, \hy)$最近的投影参考点$\mathbf{q}$
+\STATE 将归一化坐标映射到$\mathbf{q}$附近的物理坐标$(x, y)$
+\STATE \textbf{返回} $(x, y)$
+\end{algorithmic}
+\end{algorithm}
+
+坐标变换的关键作用是将任意归一化变量映射到合法部署区域内，使粒子更新后无需额外投影或截断即可满足边界约束。与直接在外接矩形中采样再剔除非法点相比，该方法避免了边界附近候选点被系统性丢弃的问题，使搜索过程能够覆盖凸多边形$P_k$的完整可行区域。需要指出的是，对于一般多边形，该变换不保证严格的面积均匀分布；本文使用它的主要目的在于约束处理和边界可达性。
+
+\subsection{MOPSO-DT多目标优化算法}
+
+\subsubsection{粒子编码}
+
+每个粒子代表一种完整的雷达部署方案。对于$J$个雷达和$N_{\text{bin}}$位二进制区域编码，粒子的位置向量为：
+
+\begin{equation}
+\mathbf{\Phi} = [\hx_1, \hy_1, b_1^1, \ldots, b_1^{N_{\text{bin}}}, \hx_2, \hy_2, b_2^1, \ldots, b_J^{N_{\text{bin}}}]
+\label{eq:particle_encoding}
+\end{equation}
+
+其中$(\hx_j, \hy_j) \in [0,1]^2$为第$j$个雷达的归一化坐标（连续变量），$b_j^1, \ldots, b_j^{N_{\text{bin}}} \in \{0,1\}$为区域索引的二进制编码（离散变量）。该编码同时优化连续坐标和离散区域选择，属于混合变量优化问题。
+
+\subsubsection{更新规则}
+
+\textbf{连续变量更新：}雷达归一化坐标采用标准PSO速度-位置更新：
+
+\begin{equation}
+\begin{aligned}
+v_i^d(t+1) ={}& w(t) \cdot v_i^d(t)
+ + c_1 \cdot r_1 \cdot \left(p_i^{d,\text{best}} - x_i^d(t)\right) \\
+& + c_2 \cdot r_2 \cdot \left(g^{d,\text{best}} - x_i^d(t)\right)
+\end{aligned}
+\label{eq:continuous_update}
+\end{equation}
+
+\textbf{二进制变量更新：}区域编码通过交叉和变异操作更新：
+
+\begin{equation}
+\tilde{b}_j^k(t+1) =
+\begin{cases}
+b_{p,j}^{k,\text{best}}, & r_1 < p_c,\ r_2 < \frac{c_1}{c_1+c_2}, \\
+b_{g,j}^{k,\text{best}}, & r_1 < p_c,\ r_2 \geq \frac{c_1}{c_1+c_2}, \\
+b_j^k(t), & r_1 \geq p_c,
+\end{cases}
+\label{eq:binary_crossover}
+\end{equation}
+其中$b_{p,j}^{k,\text{best}}$和$b_{g,j}^{k,\text{best}}$分别表示个体最优和全局领导者中的区域选择编码，$p_c$为交叉概率。随后执行独立变异：
+\begin{equation}
+b_j^k(t+1) =
+\begin{cases}
+1-\tilde{b}_j^k(t+1), & r_3 < p_m, \\
+\tilde{b}_j^k(t+1), & r_3 \geq p_m,
+\end{cases}
+\label{eq:binary_mutation}
+\end{equation}
+
+\subsubsection{动态参数策略}
+
+\textbf{惯性权重$w(t)$：}经参数调优（见第四章），推荐采用standard线性递减策略 $w(t) = 0.9 - 0.5 \cdot t/T_{\max}$。该策略在初期提供较强的全局探索能力，后期保证局部收敛精度。
+
+\textbf{变异概率$p_m(t)$：}采用动态下界策略 $p_m(t) = \max(p_m^{\text{base}}, w(t)/N_P)$，其中$p_m^{\text{base}} = 0.01$为基础变异率，$N_P$为粒子数。该策略保证迭代后期的变异概率不会机械退化为零。
+
+\subsubsection{全局最优选择}
+
+在多目标场景中，"全局最优"不再唯一。本文比较以下两种选择策略：
+
+\begin{itemize}
+    \item \textbf{随机选择（random）：}从外部档案中均匀随机选择一个非支配解作为全局最优。简单高效，但可能加剧解的聚集，使得粒子更倾向于飞向Pareto前沿上已经密集的区域\cite{Coello2004}。
+    \item \textbf{拥挤度加权轮盘赌（crowding）：}按照拥挤距离加权概率，从外部档案中选择全局最优。拥挤距离越大的解被选中的概率越高，鼓励粒子向Pareto前沿的稀疏区域移动，从而自动填补前沿缺口、提升解的分布均匀性\cite{Raquel2005}。
+\end{itemize}
+
+\textbf{理论依据。}选择拥挤加权策略的动机源于多目标优化的两个核心目标之间的关系。在Pareto前沿的搜索过程中，收敛性（逼近真实前沿）和多样性（在前沿上均匀分布）通常需要分别维护。随机选择策略仅保证前者——粒子被Pareto支配关系天然地引向前沿方向；而拥挤加权策略通过使粒子优先飞向稀疏区域，在不损害收敛性的前提下主动促进多样性。这一设计的理论基础可追溯至NSGA-II中拥挤距离作为多样性维护机制的原始设计\cite{Deb2002}，Raquel和Naval\cite{Raquel2005}首次将其引入MOPSO的全局最优选择。与SPEA2的$k$-近邻密度估计\cite{Zitzler2001}相比，拥挤距离具有计算简单（$O(N \log N)$排序）、无额外参数的优势，且其轴向距离定义与本文的两个物理目标（覆盖率、干扰强度）在语义上具有良好的对应关系。
+
+与2023--2025年的最新方法相比：TMMOPSO~\cite{Liu2023}的超锥域选择需要额外的超锥参数配置，PPSO~\cite{Wang2024}的SOM预测增加了可观的计算开销，MOPSO/CP~\cite{Zhang2024}的局部理想点方法适用于目标数$m \geq 3$的场景。本文的拥挤加权策略在保持计算简洁性的同时，对雷达部署这类$m=2$的典型双目标优化问题提供了高效的多样性维护能力。经实验验证（第四章），crowding策略在Pareto前沿的分布均匀性（Spacing）上显著优于random策略，改善幅度达35.7\%--54.0\%。
+
+\subsubsection{外部档案维护}
+
+外部档案$\mathcal{A}$维护搜索过程中发现的非支配解。当新解加入时：
+\begin{enumerate}
+    \item 将新解与档案中所有解进行Pareto支配比较
+    \item 若新解被档案中任一解支配，则丢弃新解
+    \item 若新解支配档案中部分解，则删除被支配的旧解，并添加新解
+    \item 若档案大小超过预设容量，删除拥挤距离最小的解
+\end{enumerate}
+
+\subsubsection{算法主循环}
+
+\begin{algorithm}[t]
+\caption{MOPSO-DT多目标部署优化}
+\label{alg:mopso_dt}
+\begin{algorithmic}[1]
+\STATE \textbf{输入：}区域$\mathcal{R}$，雷达数量$J$，参数$N_P, T_{\max}, c_1, c_2, w_{\text{strategy}}, p_m^{\text{base}}$
+\STATE \textbf{输出：}Pareto最优部署方案集合$\mathcal{A}$
+\STATE \textbf{初始化：}
+\STATE \quad 运行区域分解算法（算法1）→ $\mathcal{P}, N_{\text{bin}}$
+\STATE \quad 随机初始化$N_P$个粒子（均匀分布归一化坐标+二进制编码）
+\STATE \quad 评估每个粒子，初始化外部档案$\mathcal{A}$为初始非支配解
+\FOR{$t = 1$ \TO $T_{\max}$}
+    \STATE 计算$w(t)$和$p_m(t)$
+    \FOR{每个粒子$i$}
+        \STATE 选择全局最优$\mathbf{g}^{\text{best}}$（random或crowding策略）
+        \STATE 更新连续坐标：式(\ref{eq:continuous_update})
+        \STATE 更新二进制编码：式(\ref{eq:binary_crossover})--(\ref{eq:binary_mutation})
+        \STATE 坐标变换（算法2）→ 物理位置
+        \STATE 评估目标函数$f_1, f_2$
+        \STATE 更新个体最优$\mathbf{p}_i^{\text{best}}$（Pareto支配关系）
+    \ENDFOR
+    \STATE 更新外部档案$\mathcal{A}$（Pareto支配+拥挤距离截断）
+\ENDFOR
+\STATE \textbf{返回} $\mathcal{A}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{算法复杂度分析}
+
+MOPSO-DT算法的主要计算开销来自每轮迭代中的粒子评估。对于$M$个任务点、$J$个雷达、$N_P$个粒子和$T_{\max}$次迭代：
+
+\begin{itemize}
+    \item 每次粒子评估需要计算$M \times J$的探测概率矩阵和等效干扰强度矩阵，复杂度为$O(M \cdot J)$
+    \item 每轮迭代需评估$N_P$个粒子，总复杂度为$O(N_P \cdot M \cdot J)$
+    \item 外部档案维护的复杂度为$O(|\mathcal{A}| \log |\mathcal{A}|)$
+    \item 总时间复杂度：$O(T_{\max} \cdot N_P \cdot M \cdot J + T_{\max} \cdot |\mathcal{A}| \log |\mathcal{A}|)$
+    \item 空间复杂度：$O(N_P \cdot J \cdot (2 + N_{\text{bin}}) + |\mathcal{A}|)$
+\end{itemize}
+
+在实际应用中，通过Numba JIT编译和向量化矩阵运算，MOPSO-DT可实现显著的运行时加速。以$T_{\max}=500, N_P=50, M=100, J=8$的典型配置为例，整个优化过程在消费级CPU（Intel Core i7-13700H）上耗时211.9秒（约3.5分钟）。

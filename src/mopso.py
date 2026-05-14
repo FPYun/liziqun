@@ -99,7 +99,7 @@ class MOPSO_DT(LogMixin):
         log_level: int = logging.INFO,
         use_batch_update: bool = True,
         n_workers: int = 1,
-        w_strategy: str = 'legacy',
+        w_strategy: str = 'standard',
         p_m_base: float = 0.0,
         select_gb: str = 'random'
     ):
@@ -513,16 +513,15 @@ class MOPSO_DT(LogMixin):
         """
         判断解1是否支配解2（Pareto支配关系）
 
-        使用 Numba 优化的实现（如果可用）。在多目标优化中，解 A 支配解 B 当且仅当：
+        在多目标优化中，解 A 支配解 B 当且仅当：
         1. A 在所有目标上都不劣于 B（即对每个目标 i，f_i(A) ≤ f_i(B)）
         2. A 在至少一个目标上严格优于 B（即存在某个目标 j，f_j(A) < f_j(B)）
 
-        注意：本问题中目标1（覆盖率）需要最大化，目标2（干扰）需要最小化
-        因此我们在内部将覆盖率取负，统一转化为最小化问题
+        两个目标均为最小化问题：f1 = 1-ECR, f2 = J_norm
 
         Args:
-            obj1: 解1的目标函数值 [coverage1, interference1]
-            obj2: 解2的目标函数值 [coverage2, interference2]
+            obj1: 解1的目标函数值 [f1, f2]
+            obj2: 解2的目标函数值 [f1, f2]
 
         Returns:
             True if obj1 dominates obj2, False otherwise
@@ -646,6 +645,11 @@ class MOPSO_DT(LogMixin):
 
             # 记录拥挤度
             self.history['crowding_distances'].append(distances[sorted_indices[:self.archive_size]])
+
+            # 将拥挤距离写回每个归档条目
+            kept_distances = distances[sorted_indices[:self.archive_size]]
+            for i, sol in enumerate(self.archive):
+                sol['crowding_distance'] = float(kept_distances[i])
 
     def _select_global_best(self):
         """
@@ -818,12 +822,11 @@ class MOPSO_DT(LogMixin):
                                 # 继承 gb 的二进制位
                                 assert self.gb_binary is not None, "gb_binary should be initialized"
                                 particle.position_binary[j, k] = self.gb_binary[j, k]
-                        else:
-                            # 未触发交叉，检查变异
-                            r5 = np.random.random()
-                            if r5 < p_m:
-                                # 取反操作
-                                particle.position_binary[j, k] = 1 - particle.position_binary[j, k]
+
+                        # 变异（独立于交叉）
+                        r5 = np.random.random()
+                        if r5 < p_m:
+                            particle.position_binary[j, k] = 1 - particle.position_binary[j, k]
 
     def _evaluate_and_update_best(self):
         """

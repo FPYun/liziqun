@@ -49,17 +49,12 @@ if NUMBA_AVAILABLE:
         返回:
             True if obj1 dominates obj2
         """
-        # 转换为最小化问题：覆盖率取负
-        f1_1 = -obj1[0]
-        f1_2 = obj1[1]
-        f2_1 = -obj2[0]
-        f2_2 = obj2[1]
-
+        # 两个目标都是最小化问题（f1 = 1-ECR, f2 = J_norm）
         # 检查条件1：obj1 在所有目标上都不劣于 obj2
-        not_worse = (f1_1 <= f2_1) and (f1_2 <= f2_2)
+        not_worse = (obj1[0] <= obj2[0]) and (obj1[1] <= obj2[1])
 
         # 检查条件2：obj1 在至少一个目标上严格优于 obj2
-        strictly_better = (f1_1 < f2_1) or (f1_2 < f2_2)
+        strictly_better = (obj1[0] < obj2[0]) or (obj1[1] < obj2[1])
 
         return not_worse and strictly_better
 
@@ -153,11 +148,11 @@ if NUMBA_AVAILABLE:
                         new_position[j, k] = pb_binary[j, k]
                     else:
                         new_position[j, k] = gb_binary[j, k]
-                else:
-                    # 未触发交叉，检查变异
-                    r5 = np.random.random()
-                    if r5 < p_m:
-                        new_position[j, k] = 1 - position_binary[j, k]
+
+                # 变异（独立于交叉）
+                r5 = np.random.random()
+                if r5 < p_m:
+                    new_position[j, k] = 1 - position_binary[j, k]
 
         return new_position
 
@@ -199,10 +194,11 @@ if NUMBA_AVAILABLE:
                             new_positions[p, j, k] = pb_binary[p, j, k]
                         else:
                             new_positions[p, j, k] = gb_binary[j, k]
-                    else:
-                        r5 = np.random.random()
-                        if r5 < p_m:
-                            new_positions[p, j, k] = 1 - positions_binary[p, j, k]
+
+                    # 变异（独立于交叉）
+                    r5 = np.random.random()
+                    if r5 < p_m:
+                        new_positions[p, j, k] = 1 - positions_binary[p, j, k]
 
         return new_positions
 
@@ -274,15 +270,9 @@ if NUMBA_AVAILABLE:
 # ============================================================================
 
 def _dominates_numpy(obj1: np.ndarray, obj2: np.ndarray) -> bool:
-    """纯 NumPy 实现的 Pareto 支配判断"""
-    f1_1 = -obj1[0]
-    f1_2 = obj1[1]
-    f2_1 = -obj2[0]
-    f2_2 = obj2[1]
-
-    not_worse = (f1_1 <= f2_1) and (f1_2 <= f2_2)
-    strictly_better = (f1_1 < f2_1) or (f1_2 < f2_2)
-
+    """纯 NumPy 实现的 Pareto 支配判断（两个目标均为最小化）"""
+    not_worse = (obj1[0] <= obj2[0]) and (obj1[1] <= obj2[1])
+    strictly_better = (obj1[0] < obj2[0]) or (obj1[1] < obj2[1])
     return not_worse and strictly_better
 
 

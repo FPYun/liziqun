@@ -1,0 +1,279 @@
+\section{相关理论基础}
+\label{sec:related}
+
+本章介绍本文方法所依赖的理论基础，包括雷达网络探测与干扰模型、多目标优化理论、粒子群优化算法以及计算几何方法。同时补充2023--2025年雷达部署优化领域的最新研究进展。
+
+\subsection{雷达网络探测与干扰模型}
+
+\subsubsection{探测概率模型}
+
+对于单个雷达$j$和目标位置$m$，探测概率采用指数衰减模型：
+
+\begin{equation}
+\Pdet(j, m) = P_0 \cdot \exp(-\beta \cdot d_{jm}) \cdot \mathbf{1}[d_{jm} \leq R_{\max}]
+\label{eq:detection_prob}
+\end{equation}
+
+其中$P_0$为最大探测概率（近距离），$\beta$为衰减系数，$d_{jm}$为雷达$j$与目标$m$之间的欧氏距离，$R_{\max}$为最大探测距离。
+
+对于采用雷达方程模型的场景，探测概率通过信噪比（SNR）计算：
+
+\begin{equation}
+\text{SNR}(j, m) = \frac{P_t \cdot G^2 \cdot \lambda^2 \cdot \sigma}{(4\pi)^3 \cdot k \cdot T_0 \cdot B \cdot d_{jm}^4}
+\label{eq:snr}
+\end{equation}
+
+\begin{equation}
+\Pdet(j, m) = \exp\left(-\frac{D_0}{1 + \text{SNR}(j, m)}\right)
+\label{eq:detection_prob_radar}
+\end{equation}
+
+其中$P_t$为雷达发射功率，$G$为天线增益（线性值），$\lambda$为信号波长，$\sigma$为目标雷达截面积（RCS），$k=1.38\times10^{-23}$ J/K为玻尔兹曼常数，$T_0=290$ K为标准温度，$B$为信号带宽，$D_0$为检测因子（线性值）。
+
+\subsubsection{联合探测概率}
+
+雷达网络采用OR融合规则计算任务点$m$处的联合探测概率：
+
+\begin{equation}
+\Pjoint(m) = 1 - \prod_{j=1}^{J} \left(1 - \Pdet(j, m)\right)
+\label{eq:joint_prob}
+\end{equation}
+
+该规则表示多雷达探测事件的OR融合：在条件独立近似下，任一雷达形成有效探测都会提高该任务点的联合探测概率。任务点是否被计入覆盖，由联合探测概率$P_{\text{joint}}(m)$是否超过预设阈值决定。
+
+\subsubsection{等效干扰强度模型}
+
+第$j$个干扰源在任务点$m$处的等效干扰强度定义为：
+
+\begin{equation}
+J_j(m) = \frac{P_j^{\text{jammer}} \cdot G_j^{\text{jammer}}}{4\pi \cdot d_{jm}^{\alpha_j}}
+\label{eq:jamming}
+\end{equation}
+
+其中$P_j^{\text{jammer}}$为干扰发射功率，$G_j^{\text{jammer}}$为干扰天线增益，$\alpha_j$为路径损耗指数：空中节点（A2G链路）取$\alpha_j \approx 2.0$--2.5，地面节点（G2G链路）取$\alpha_j \approx 3.5$--4.0。当$\alpha_j=2$且常数项按自由空间传播校准时，该量可解释为功率密度；当$\alpha_j\neq 2$时，本文将其作为距离衰减后的等效压制强度，用于比较不同部署方案下任务点受到的相对干扰水平。
+
+\textbf{目标函数归一化。}在多目标优化中，两个目标的量纲可能相差数个数量级。本文采用外部参考值归一化：$f_1 = 1 - \text{ECR} \in [0, 1]$，$f_2 = J_{\text{ref}} / (J_{\min} + J_{\text{ref}})$，其中$J_{\text{ref}}$为根据实验场景预先估计的参考干扰强度。由于$f_2$关于$J_{\min}$严格单调递减，最小化$f_2$与最大化$J_{\min}$等价。归一化主要用于改进超体积、Spacing、拥挤距离和领导者选择等数值过程的可比性；Pareto支配关系本身只依赖各目标的偏序关系，不依赖线性尺度。
+
+\subsection{多目标优化理论}
+
+\subsubsection{从单目标到多目标优化}
+
+现实世界中的优化问题往往涉及多个相互冲突的目标。Pareto最优性概念由意大利经济学家Vilfredo Pareto于1896年在《政治经济学手册》中首次提出，用于刻画多目标决策中"无法同时改进所有目标"的均衡状态。20世纪80年代起，进化算法（EAs）因其基于种群的自然并行性，逐渐成为求解多目标优化问题的主流方法，形成了进化多目标优化（Evolutionary Multi-objective Optimization, EMO）这一独立研究分支。
+
+多目标优化的两项核心指标是\textbf{收敛性}（解集逼近真实Pareto前沿的程度）和\textbf{多样性}（解集在前沿上的分布范围与均匀性）。这两项指标存在天然张力：过度追求前沿中心区域的收敛精度可能牺牲边缘区域的覆盖范围，反之则可能引入远离前沿的解。基于Pareto支配的算法通过显式的多样性维护机制来平衡这种张力。
+
+\subsubsection{Pareto最优概念}
+
+在多目标优化问题中，通常不存在使所有目标同时最优的单一解，而是存在一组Pareto最优解，它们之间不存在绝对优劣关系。
+
+\begin{definition}[Pareto支配]
+对于两个解$\mathbf{x}$和$\mathbf{y}$，若：
+\begin{itemize}
+    \item $\forall i \in \{1,2,\ldots,m\}, f_i(\mathbf{x}) \leq f_i(\mathbf{y})$（在所有目标上不差于$\mathbf{y}$）
+    \item $\exists j \in \{1,2,\ldots,m\}, f_j(\mathbf{x}) < f_j(\mathbf{y})$（在至少一个目标上优于$\mathbf{y}$）
+\end{itemize}
+则称$\mathbf{x}$ Pareto支配$\mathbf{y}$，记为$\mathbf{x} \prec \mathbf{y}$。
+\end{definition}
+
+\begin{definition}[Pareto最优解]
+若不存在任何解支配$\mathbf{x}^*$，则$\mathbf{x}^*$为Pareto最优解（非支配解）。所有Pareto最优解在目标空间中的映射构成Pareto前沿（Pareto Front, PF）。
+\end{definition}
+
+\subsubsection{多目标优化评价指标}
+
+\textbf{超体积（Hypervolume, HV）}：衡量Pareto前沿在目标空间中所覆盖的体积。给定参考点$\mathbf{r} = (r_1, r_2)$，HV定义为：
+
+\begin{equation}
+\text{HV}(S) = \bigcup_{\mathbf{x} \in S} \text{vol}\left([f_1(\mathbf{x}), r_1] \times [f_2(\mathbf{x}), r_2]\right)
+\label{eq:hv}
+\end{equation}
+
+HV越大表示Pareto前沿的综合质量（收敛性+多样性）越好。HV是目前唯一已知的严格Pareto兼容的一元指标\cite{Zitzler2001}（即若解集$A$严格支配解集$B$，则$\text{HV}(A) > \text{HV}(B)$），但其值对参考点$\mathbf{r}$的选择敏感，需根据问题尺度合理设定。
+
+\textbf{间距（Spacing）}：衡量Pareto前沿上解的分布均匀性：
+
+\begin{equation}
+\text{Spacing}(S) = \sqrt{\frac{1}{|S|-1} \sum_{i=1}^{|S|} (\bar{d} - d_i)^2}
+\label{eq:spacing}
+\end{equation}
+
+其中$d_i$为解$i$到其最近邻的欧氏距离，$\bar{d}$为所有$d_i$的均值。Spacing越小表示分布越均匀。
+
+\textbf{拥挤距离（Crowding Distance）}：在Pareto前沿上评估解的局部密度，由Deb等在NSGA-II\cite{Deb2002}中首次系统化引入：
+
+\begin{equation}
+d_i = \sum_{m=1}^{M} \frac{f_m(\mathbf{x}_{i+1}) - f_m(\mathbf{x}_{i-1})}{f_m^{\max} - f_m^{\min}}
+\label{eq:crowding}
+\end{equation}
+
+拥挤距离越大表示解所在区域越稀疏，在多目标选择中应优先保留。对于$M$个目标，边界解（在每个目标上取极值的解）被赋予拥挤距离$+\infty$，以确保Pareto前沿的极端区域永远不被丢弃。
+
+\subsubsection{多样性维护机制的对比}
+
+在多目标进化算法中，多样性维护是确保Pareto前沿质量和覆盖范围的关键环节。除本文采用的拥挤距离外，文献中存在多种成熟的替代方案：
+
+\begin{itemize}
+    \item \textbf{SPEA2的$k$-近邻密度估计\cite{Zitzler2001}：}不同于拥挤距离仅考虑沿目标轴向的相邻解，SPEA2采用第$k$近邻的欧氏距离倒数作为密度度量（典型值为$k = \sqrt{N + \bar{N}}$，其中$N$为种群规模，$\bar{N}$为归档规模）。该方法的优势在于对前沿形状不敏感，能够更准确地反映目标空间中的真实分布密度。
+    \item \textbf{自适应网格\cite{Knowles2000}：}PAES（Pareto Archived Evolution Strategy）将目标空间划分为均匀网格，以每个网格单元中的解数量作为密度估计。网格方法实现简单、计算开销低，但网格划分粒度的选择对算法性能影响显著。
+    \item \textbf{MOEA/D的权重向量分布\cite{Zhang2007}：}基于分解的方法通过预设一组均匀分布的权重向量，将多目标问题分解为一组标量子问题间接实现多样性的自然维持。其多样性质量高度依赖权重向量的分布设计。
+\end{itemize}
+
+拥挤距离在保持计算简洁性和参数无关性的同时，对Pareto前沿上解的分布均匀性有良好保证，因此本文选择拥挤距离作为MOPSO-DT中档案截断和全局最优选择的核心机制。
+
+\subsubsection{标量化方法的简要讨论}
+
+除了基于Pareto支配的直接方法外，多目标优化还可以通过标量化（Scalarization）将问题转化为一组单目标子问题求解：
+
+\begin{itemize}
+    \item \textbf{加权和法：}$\min \sum_i w_i f_i(\mathbf{x})$，$\sum_i w_i = 1$。简单直观，但无法发现非凸Pareto前沿上的解。
+    \item \textbf{$\varepsilon$-约束法：}保留一个目标，将其余目标转化为$\varepsilon$约束。能够覆盖非凸前沿，但$\varepsilon$参数的选择需额外开销。
+    \item \textbf{切比雪夫法：}$\min \max_i \{w_i |f_i(\mathbf{x}) - z_i^*|\}$，其中$z_i^*$为参考点。理论上能够逼近任意形状的Pareto前沿\cite{Zhang2007}。
+\end{itemize}
+
+基于Pareto支配的方法一次运行即可获得一组非支配解集，且无需预先设定权重或参考点参数，在处理雷达部署这类需要在"覆盖率"与"干扰压制效能"之间提供完整权衡曲线的规划问题时更具优势。
+
+\subsection{粒子群优化算法}
+
+\subsubsection{标准粒子群优化}
+
+粒子群优化（PSO）由Kennedy和Eberhart~\cite{Kennedy1995}提出，模拟鸟群觅食行为。每个粒子代表搜索空间中的一个候选解，通过个体经验和群体信息的引导更新自身位置：
+
+\begin{align}
+\mathbf{v}_i^{t+1} &= w \cdot \mathbf{v}_i^t + c_1 \cdot r_1 \cdot (\mathbf{p}_i^{\text{best}} - \mathbf{x}_i^t) + c_2 \cdot r_2 \cdot (\mathbf{g}^{\text{best}} - \mathbf{x}_i^t) \label{eq:pso_velocity} \\
+\mathbf{x}_i^{t+1} &= \mathbf{x}_i^t + \mathbf{v}_i^{t+1} \label{eq:pso_position}
+\end{align}
+
+其中$w$为惯性权重，$c_1$和$c_2$分别为认知因子和社会因子，$r_1, r_2 \sim U(0,1)$为随机数，$\mathbf{p}_i^{\text{best}}$为粒子$i$的历史最优位置，$\mathbf{g}^{\text{best}}$为种群全局最优位置。
+
+\subsubsection{惯性权重策略}
+
+惯性权重$w$控制粒子保持先前速度的能力，对算法的探索-利用平衡至关重要。本文研究和比较以下三种策略：
+
+\begin{enumerate}
+    \item \textbf{Legacy策略：}$w(t) = 0.4 - 0.4 \cdot \frac{t}{T_{\max}}$，线性从0.4递减至0
+    \item \textbf{Standard策略：}$w(t) = 0.9 - 0.5 \cdot \frac{t}{T_{\max}}$，线性从0.9递减至0.4~\cite{Shi1998}
+    \item \textbf{Adaptive策略：}$w(t) = w_{\max} - (w_{\max} - w_{\min}) \cdot \left(\frac{t}{T_{\max}}\right)^{1/2}$，非线性递减
+\end{enumerate}
+
+\subsubsection{多目标PSO（MOPSO）}
+
+MOPSO将PSO从单目标扩展至多目标优化，需要解决三个核心问题：（1）如何定义个体最优（pb）——当粒子前后两个位置互不支配时如何选择？（2）如何选择全局最优（gb）——多目标场景中不存在唯一的全局最优解；（3）如何维护精英解集——如何存储和更新搜索过程中发现的非支配解。
+
+\subsubsection{MOPSO的发展简史}
+
+\textbf{首个MOPSO（Coello \& Lechuga, 2002）}在标准PSO中引入外部归档存储非支配解，使用自适应网格对归档进行密度估计和截断，采用轮盘赌从低密度网格中选择全局最优。
+
+\textbf{经典MOPSO综述（Coello et al., 2004）}\cite{Coello2004}系统总结了MOPSO的核心组件：外部档案、全局最优选择、档案维护策略，并提出了包含变异操作的MOPSO框架，成为后续大多数MOPSO变体的设计基准。
+
+\textbf{MOPSO-CD（Raquel \& Naval, 2005）}\cite{Raquel2005}首次将NSGA-II中的拥挤距离概念引入MOPSO，替代自适应网格用于档案维护和全局最优选择，开创了"拥挤距离 + 外部归档"的MOPSO设计范式。本文的MOPSO-DT算法直接沿袭了这一范式。
+
+\textbf{2023--2025年代表性进展：}
+\begin{itemize}
+    \item TMMOPSO~\cite{Liu2023}（2023）：提出双阶段档案维护与多策略选择机制，基于超锥域为每个粒子自适应选择全局最优，采用SBX交叉和多项式变异对精英粒子进行扰动。
+    \item MOPSO/CP~\cite{Zhang2024}（2024）：基于局部理想点构造无参数收敛贡献（CC）评估器，与并行单元距离（PCD）协作增强全局最优选择和档案维护。
+    \item PPSO~\cite{Wang2024}（2024, IEEE TEVC）：提出基于SOM的领导者预测范式——不再从归档中选择全局最优，而是通过自组织映射显式拟合Pareto集的流形结构来预测每个粒子的最佳引导方向。
+    \item TPSO-DF~\cite{Xu2024}（2024）：将收敛性和多样性两个独立指标融合为单一排序度量，用于自适应全局最优选择和两阶段混合变异。
+    \item DNPSO-AG~\cite{Sun2024}（2024）：利用仿射传播聚类进行动态小生态划分，通过外部归档引导机制匹配子归档与小生态。
+    \item DMMOPSO~\cite{Ma2025}（2025）：基于分解框架，根据子空间进化状态在三种领导选择策略之间自适应切换。
+\end{itemize}
+
+\subsubsection{全局最优选择策略的分类学}
+
+全局最优（gbest）选择是MOPSO区别于单目标PSO的关键设计。表~\ref{tab:leader_taxonomy}给出了主要策略的分类与比较。
+
+\begin{table}[h]
+\centering
+\caption{MOPSO全局最优选择策略分类}
+\label{tab:leader_taxonomy}
+\begin{tabular}{p{2cm}p{1.8cm}p{2.5cm}p{2cm}}
+\toprule
+\textbf{类别} & \textbf{代表方法} & \textbf{核心机制} & \textbf{优缺点} \\
+\midrule
+随机选择 & 本文Baseline~\cite{Coello2004} & 归档均匀随机采样 & 简单、无参数；可能加剧解的聚集 \\
+\hline
+密度加权 & 本文Crowding\cite{Raquel2005} & 拥挤距离加权轮盘赌 & 促进多样性；需维护拥挤距离 \\
+\hline
+几何引导 & Sigma法\cite{Mostaghim2003} & 选择sigma值最接近的归档解 & 方向一致性；仅适用于2-3目标 \\
+\hline
+自适应 & TMMOPSO\cite{Liu2023} & 超锥域+进化状态判断 & 收敛速度快；参数较多 \\
+\hline
+预测 & PPSO\cite{Wang2024} & SOM预测粒子最优引导方向 & 同时优化PF和PS；计算开销较大 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+本文系统比较了随机选择和拥挤加权两种策略，实验表明拥挤加权在保证收敛性的同时，可显著改善Pareto前沿的分布均匀性（Spacing改善35.7\%--54.0\%）。
+
+\subsubsection{档案维护策略的比较}
+
+外部档案的维护方式直接影响Pareto前沿的质量和算法效率。主要策略包括：
+
+\begin{itemize}
+    \item \textbf{非支配排序 + 拥挤距离截断\cite{Deb2002,Raquel2005}}——本文采用。当档案超容时，计算所有解的拥挤距离并保留距离最大的$N_a$个解。边界解因拥挤距离为无穷大而始终保留。
+    \item \textbf{自适应网格截断\cite{Coello2004,Knowles2000}}——将目标空间网格化，从密度最高的网格中随机删除解。简单高效，但对网格粒度和前沿几何形状敏感。
+    \item \textbf{双阶段超立方维护\cite{Liu2023}}——第一阶段删除高密度超立方中的低质量解，第二阶段按拥挤距离补充截断。在收敛性和多样性之间取得更好的折中。
+    \item \textbf{聚类归档\cite{Zhang2024}}——基于并行单元距离对归档解聚类，在不同密度区域实施差异化删除策略。
+\end{itemize}
+
+\subsubsection{与其他群体智能多目标算法的简要比较}
+
+除PSO外，其他群体智能算法也已被扩展至多目标领域。多目标蚁群优化（MOACO）利用信息素机制构建Pareto前沿，在组合优化问题中表现突出；多目标人工蜂群（MOABC）通过雇佣蜂、跟随蜂和侦察蜂的三阶段搜索实现Pareto解集的发现；多目标灰狼优化（MOGWO）采用层级社会结构指导多目标搜索。PSO因其简单的速度-位置更新规则、较少的控制参数以及连续空间上的快速收敛特性，在求解本文的连续+离散混合变量部署优化问题时具有天然优势。MOPSO连续更新式（\ref{eq:continuous_update}）可直接应用于雷达归一化坐标，而MOACO等信息素机制更适合纯组合优化场景。
+
+\subsection{计算几何基础}
+
+\subsubsection{Hertel-Mehlhorn凸分解算法}
+
+Hertel-Mehlhorn算法~\cite{Hertel1983}是一种经典的简单多边形凸分解方法，时间复杂度为$O(n \log n)$，其中$n$为多边形顶点数。算法的主要步骤包括：
+
+\begin{enumerate}
+    \item \textbf{连通性处理：}将输入的多边形分解为独立的连通分量
+    \item \textbf{空洞消除：}针对带空洞的多边形，使用双线段切割方法消除所有空洞
+    \item \textbf{三角剖分：}对无空洞的简单多边形进行Delaunay三角剖分
+    \item \textbf{三角形合并：}贪心地合并相邻三角形，形成凸多边形集合
+\end{enumerate}
+
+\subsubsection{坐标变换}
+
+垂直交点坐标变换方法将归一化坐标$(\hx, \hy) \in [0,1]^2$映射到凸多边形$P$内的物理坐标$(x, y)$。变换步骤如下：
+
+\begin{enumerate}
+    \item 在凸多边形边界上寻找与垂直线$x = \hx \cdot \text{width}$的所有交点
+    \item 在凸多边形边界上寻找与水平线$y = \hy \cdot \text{height}$的所有交点
+    \item 选择距离归一化坐标$(\hx, \hy)$最近的交点作为投影参考点
+    \item 将归一化坐标映射到投影参考点附近的物理坐标
+\end{enumerate}
+
+该变换的关键作用在于：将归一化坐标空间中的候选解映射到合法物理区域内，减少外接矩形采样后剔除非法点所造成的边界欠采样问题。
+
+\subsection{2023--2025年最新研究进展}
+
+近年来，雷达网络部署优化领域取得了多项重要进展。以下按主题分类综述与本工作密切相关的最新成果。
+
+\textbf{多目标雷达部署优化。}Yan等~\cite{Yan2024}在IEEE TAES上提出了基于Pareto理论的组网雷达搜索-跟踪联合部署优化方法，采用改进NSGA-II求解搜索覆盖面积与定位误差的双目标权衡问题，验证了Pareto框架在雷达部署中的有效性——与本文采用Pareto支配求解ECR-$J_{\min}$权衡的思路一致。Wang等~\cite{MSRS2024}针对非连通区域的MSRS部署，将问题形式化为多目标混合整数规划（MOMIP），提出了MOPSO-Sigmoid和MOPSO-Gene两种变量处理策略，其混合变量处理思路与本文的连续+二进制混合编码设计异曲同工。Zhang等~\cite{Radar3D2025}将部署问题扩展至三维地形，引入抛物方程模型（PEM）替代传统的自由空间/视距传播假设，采用NSGA-III实现多高度层的协同覆盖优化——其传播模型改进方向与本文的空地异构传播建模具有相通的问题动机。
+
+\textbf{空地协同与UAV部署。}Li等~\cite{Li2025}针对ISAC（集成感知与通信）UAV蜂群部署，提出了改进MOPSO（IMOPSO），融合混沌初始化、Lévy飞行变异和动态变异率，在数据速率、感知质量和能耗方面全面优于标准MOPSO——其混沌初始化和动态变异策略可作为本文未来参数优化的参考方向。Milone等~\cite{Milone2024}研究了城市空中交通（UAM）场景下的地基雷达网络部署，联合优化空域覆盖率和Cramér-Rao下界（CRLB），在山地和平面地形下分别达到88.9\%和99.2\%的覆盖率。
+
+\textbf{电子对抗与干扰部署。}Liu等~\cite{JammerDeploy2023}在Defence Technology上提出了多干扰源全域协同部署方法，建立了压制式和欺骗式干扰效果评估指标体系，实现了地-空-天全域部署优化。Wang等~\cite{Barrage2025}在2025年提出了基于场景分割的自适应压制干扰方法，将感兴趣区域分解为多个子场景并分别生成干扰频率响应函数，实现了干扰位置、覆盖和功率的精确控制。
+
+表~\ref{tab:recent_comparison}以五个维度总结上述进展与本文工作的关系。
+
+\begin{table}[h]
+\centering
+\caption{2023--2025年相关研究的主题维度对比}
+\label{tab:recent_comparison}
+\begin{tabular}{p{1.8cm}p{1.3cm}p{1.3cm}p{1.3cm}p{1.3cm}p{1.3cm}}
+\toprule
+\textbf{论文} & \textbf{多目标优化} & \textbf{区域分解} & \textbf{异构传播} & \textbf{边界效应} & \textbf{领导选择} \\
+\midrule
+Yan2024~\cite{Yan2024} & $\checkmark$ & -- & -- & -- & -- \\
+MSRS2024~\cite{MSRS2024} & $\checkmark$ & -- & -- & -- & $\checkmark$ \\
+Radar3D2025~\cite{Radar3D2025} & $\checkmark$ & -- & $\checkmark$ & -- & -- \\
+Li2025~\cite{Li2025} & $\checkmark$ & -- & $\checkmark$ & -- & -- \\
+JammerDeploy2023~\cite{JammerDeploy2023} & -- & -- & -- & -- & -- \\
+Barrage2025~\cite{Barrage2025} & -- & $\checkmark$ & -- & -- & -- \\
+\textbf{本文} & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{与本文工作的关系。}上述进展表明，区域分解和坐标变换（Han等~\cite{Han2025}）、多目标Pareto优化（Yan等~\cite{Yan2024}）、考虑地形和传播特性（Zhang等~\cite{Radar3D2025}）以及电子对抗场景的部署优化（Liu等~\cite{JammerDeploy2023}）是当前的研究热点。然而，如表~\ref{tab:recent_comparison}所示，尚无工作将空地异构传播模型、边界效应抑制、区域凸分解和多目标Pareto优化统一在一个框架内。本文在MOPSO-DT基础上引入空地异构传播模型，通过系统参数调优（特别是全局最优选择的拥挤加权策略）提升Pareto前沿质量，填补了这一空白。
