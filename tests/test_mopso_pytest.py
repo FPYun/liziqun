@@ -134,9 +134,9 @@ class TestCoreFunctionality:
         assert np.array_equal(Phi[:, 2:], binary)
 
     def test_dominates_coverage_better(self, mopso_instance):
-        """测试覆盖率更优的支配关系"""
-        obj1 = np.array([0.9, 0.3])  # 高覆盖率，低干扰
-        obj2 = np.array([0.7, 0.4])  # 低覆盖率，高干扰
+        """测试覆盖率更优的支配关系（f1/f2均最小化，值越小越好）"""
+        obj1 = np.array([0.1, 0.3])  # 低f1(高ECR)，低f2(低干扰)
+        obj2 = np.array([0.3, 0.5])  # 高f1(低ECR)，高f2(高干扰)
 
         assert mopso_instance._dominates(obj1, obj2) == True
         assert mopso_instance._dominates(obj2, obj1) == False
@@ -156,11 +156,11 @@ class TestCoreFunctionality:
         assert mopso_instance._dominates(obj1, obj2) == False
 
     def test_dominates_trade_off(self, mopso_instance):
-        """测试权衡情况的非支配关系"""
-        obj1 = np.array([0.9, 0.5])  # 高覆盖率但高干扰
-        obj2 = np.array([0.7, 0.2])  # 低覆盖率但低干扰
+        """测试权衡情况的非支配关系（各有优劣则互不支配）"""
+        obj1 = np.array([0.2, 0.8])  # 低f1(高ECR)但高f2(高干扰)
+        obj2 = np.array([0.7, 0.2])  # 高f1(低ECR)但低f2(低干扰)
 
-        # 互不支配
+        # 互不支配：obj1在f1更优但f2更差，obj2在f2更优但f1更差
         assert mopso_instance._dominates(obj1, obj2) == False
         assert mopso_instance._dominates(obj2, obj1) == False
 
@@ -256,15 +256,15 @@ class TestParameterCalculation:
     """测试参数计算"""
 
     def test_inertia_weight_initial(self, mopso_instance):
-        """测试初始惯性权重"""
+        """测试初始惯性权重 (standard: 0.9 -> 0.4)"""
         w = mopso_instance._calculate_inertia_weight(1)
-        expected = -0.4 / 50 * 1 + 0.4
+        expected = 0.9 - 0.5 * 1 / 50
         assert abs(w - expected) < 1e-10
 
     def test_inertia_weight_final(self, mopso_instance):
-        """测试最终惯性权重"""
+        """测试最终惯性权重 (standard: 0.9 -> 0.4)"""
         w = mopso_instance._calculate_inertia_weight(50)
-        expected = -0.4 / 50 * 50 + 0.4
+        expected = 0.9 - 0.5 * 50 / 50
         assert abs(w - expected) < 1e-10
 
     def test_mutation_probability(self, mopso_instance):

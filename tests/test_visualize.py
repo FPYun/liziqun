@@ -78,7 +78,7 @@ def visualize_step_by_step():
     print("可视化示例3: 分步分解过程")
     print("=" * 60)
 
-    from region_decomposition import (
+    from src.decomposition import (
         decompose_connected_components,
         eliminate_holes,
         convex_decomposition

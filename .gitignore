@@ -44,16 +44,36 @@ Thumbs.db
 # Project specific
 figures/*.png
 *.pdf
+!TongjiThesis-1.4.0/figures/*.pdf
 *.docx
 logs/
 *.log
+.sync-backup/
+_backup_snapshot_*/
 .coverage
 htmlcov/
 .pytest_cache/
 .mypy_cache/
 .radon/
 .claude/
+.aris/
+
+# LaTeX generated files
+*.aux
+*.blg
+*.fdb_latexmk
+*.fls
+*.xdv
+*.bbl
+*.bcf
+*.out
+*.run.xml
+*.toc
+*.synctex.gz
+_minted*/
 
 # Test outputs
 test_outputs/
 *.test_output
+pareto_front_simple.png
+reports/validation_logs/

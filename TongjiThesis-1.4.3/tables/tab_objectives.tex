@@ -1,0 +1,14 @@
+% 此文件由 tools/generate_tables.py 自动生成，请勿手动编辑
+\begin{table}[h]
+\centering
+\caption{优化目标形式化定义}
+\label{tab:objectives}
+\begin{tabular}{ccp{5.5cm}cc}
+\toprule
+目标 & 函数表达式 & 物理含义 & 优化方向 & 取值范围 \\
+\midrule
+$f_1$ & $f_1 = 1 - \mathrm{ECR}$ & 覆盖效能损失：未达到探测阈值的任务点加权比例 & $\min$ & $[0, 1]$ \\
+$f_2$ & $f_2 = \dfrac{J_{\mathrm{ref}}}{J_{\min} + J_{\mathrm{ref}}}$ & 压制效能损失：归一化后最小干扰功率密度的倒数映射 & $\min$ & $(0, 1)$ \\
+\bottomrule
+\end{tabular}
+\end{table}

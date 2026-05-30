@@ -1,0 +1,20 @@
+% 此文件由 tools/generate_tables.py 自动生成，请勿手动编辑
+\begin{table}[h]
+\centering
+\caption{MOPSO-DT核心机制与设计选择}
+\label{tab:core_mechanisms}
+\begin{tabular}{llp{6cm}}
+\toprule
+核心机制 & 设计选择 & 解决的问题 \\
+\midrule
+粒子编码 & 混合变量：连续坐标 $+$ 二进制区域编码 & 同时优化雷达位置（连续空间）和子区域选择（离散空间） \\
+连续变量更新 & 标准PSO速度--位置更新 & 在$[0,1]^2$归一化空间中高效搜索连续坐标 \\
+二进制变量更新 & 交叉（继承$p_{\mathrm{best}}$/$g_{\mathrm{best}}$）$+$独立变异 & 以可控随机性选择最优子区域，平衡探索与利用 \\
+惯性权重 & standard线性递减：$w=0.9\to0.4$ & 前期强全局探索，后期保证局部收敛精度 \\
+全局最优选择 & crowding拥挤度加权轮盘赌 & 引导粒子向Pareto前沿稀疏区域移动，提升分布均匀性 \\
+外部档案 & Pareto支配筛选 $+$ 拥挤距离截断 & 维护有限容量的高质量非支配解集，保证多样性 \\
+约束处理 & 坐标变换$[0,1]^2$$\to$凸多边形物理空间 & 将任意多边形约束转为无约束归一化搜索，抑制边界效应 \\
+性能加速 & Numba JIT $+$ CuPy GPU $+$ 多线程并行 & 将典型场景优化耗时从小时级降至分钟级 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -1,0 +1,15 @@
+\MakeAbstract{
+多功能雷达与电子对抗节点协同部署中，节点位置会影响探测覆盖、干扰压制和边界任务点性能。针对复杂区域中凹边界、空洞及非连通子区域带来的可行位置搜索问题，本文在MOPSO-DT框架上构建空地协同部署优化方法。
+
+方法采用Hertel-Mehlhorn凸分解和垂直交点坐标变换，将粒子编码映射到合法部署区域；目标评估区分A2G与G2G链路路径损耗，并以有效覆盖率ECR和最小等效干扰强度$J_{\min}$描述覆盖-压制权衡。算法实现保留外部Pareto档案，采用standard惯性权重和拥挤度领导者选择。
+
+实验在雷达方程、复杂区域和参数调优场景中进行，并与原始MOPSO-DT、NSGA-II、MOEA/D、SPEA2和随机搜索在相同预算下比较。结果表明，本文流程可输出可解释的非支配部署方案，在边界覆盖和部分解集质量指标上较原始配置有所改善；经典多目标进化算法在若干Pareto质量指标上仍有竞争力。本文结论限定于给定静态部署场景，为复杂区域下的覆盖与重点压制取舍提供量化参考。
+}{多目标粒子群优化，区域分解，坐标变换，空地协同，电子对抗}
+
+\MakeAbstractEng{
+This thesis studies air-ground cooperative deployment of radar and electronic-countermeasure nodes in complex regions. Node locations affect sensing coverage, jamming pressure, and boundary task-point performance. To address feasible-position search in regions with concave boundaries, holes, or disconnected components, this work builds an air-ground deployment optimization method based on MOPSO-DT.
+
+The method combines Hertel-Mehlhorn convex decomposition with a vertical-intersection coordinate transformation, so particle encodings are mapped to feasible deployment regions. The objective evaluation distinguishes A2G and G2G path loss and uses effective coverage rate and minimum equivalent jamming intensity to describe the coverage-suppression trade-off. The optimizer keeps an external Pareto archive and uses a standard inertia schedule with crowding-based leader selection.
+
+Experiments cover a radar-equation scenario, a complex-region scenario, and a tuning scenario. Under the same evaluation budget, the method is compared with the original MOPSO-DT, NSGA-II, MOEA/D, SPEA2, and random search. The workflow produces interpretable non-dominated deployments and improves boundary coverage and selected solution-set quality indicators over the original configuration, while classical evolutionary algorithms remain competitive on several Pareto-quality metrics. The conclusion is limited to the given static deployment scenarios and provides quantitative support for coverage and focused-suppression trade-offs in complex regions.
+}{Multi-objective Particle Swarm Optimization, Region Decomposition, Coordinate Transformation, Air-ground Coordination, Electronic Countermeasure}

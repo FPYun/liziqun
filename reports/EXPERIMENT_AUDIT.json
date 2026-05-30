@@ -1,0 +1,38 @@
+{
+  "date": "2026-05-12",
+  "auditor": "claude-same-agent",
+  "note": "Cross-model Codex MCP reviewer unavailable; audit performed by same agent following the checklist",
+  "overall_verdict": "warn",
+  "integrity_status": "warn",
+  "checks": {
+    "gt_provenance": {
+      "status": "pass",
+      "details": "All evaluations are simulation_only — mathematical models (radar equation, ITU-R propagation). No fake GT from model outputs."
+    },
+    "score_normalization": {
+      "status": "pass",
+      "details": "ECR uses raw binary decisions. J_min is raw physical quantity. J_max_ref is externally estimated per experiment, not from solution statistics."
+    },
+    "result_existence": {
+      "status": "warn",
+      "details": "Legacy paper/sections/ numbers mismatch current experiments. No structured JSON saved for experiment_paper_aligned and experiment_challenging (stdout only). tune_results.json exists and is valid."
+    },
+    "dead_code": {
+      "status": "warn",
+      "details": "generate_boundary_task_points, calculate_boundary_ecr, path_loss_air_to_ground, path_loss_ground_to_ground, calculate_jamming_power declared but never called. Utility functions, not fraudulent."
+    },
+    "scope": {
+      "status": "warn",
+      "details": "2 scenarios tested, single seed per config. No error bars. Missing 100km² basic scenario from legacy claims. Acceptable for undergraduate thesis."
+    },
+    "eval_type": "simulation_only"
+  },
+  "claims": [
+    {"id": "C1", "claim": "边界效应消除，边界ECR=100%", "impact": "needs_requalification"},
+    {"id": "C2", "claim": "空地异构传播模型提高准确性", "impact": "supported"},
+    {"id": "C3", "claim": "MOPSO-DT Pareto解+750%", "impact": "needs_requalification"},
+    {"id": "C4", "claim": "ECR-J_min强负相关", "impact": "supported"},
+    {"id": "C5", "claim": "优化效率提升30×", "impact": "supported"},
+    {"id": "C6", "claim": "挑战性场景算法有效", "impact": "supported"}
+  ]
+}

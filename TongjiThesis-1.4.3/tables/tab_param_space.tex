@@ -1,0 +1,20 @@
+% 此文件由 tools/generate_tables.py 自动生成，请勿手动编辑
+\begin{table}[h]
+\centering
+\caption{MOPSO-DT参数空间与推荐配置}
+\label{tab:param_space}
+\begin{tabular}{lccc}
+\toprule
+参数 & 搜索/可选范围 & 推荐值 & HV影响程度 \\
+\midrule
+粒子数 $N_P$ & $\{20, 30, 50, 80\}$ & 50 & 高（$N_P{=}50$ 时 HV 最大，$N_P{=}80$ 收益递减） \\
+最大迭代 $T_{\max}$ & $\{30, 50, 100, 500\}$ & 500 & 中（50 次后边际增益减小） \\
+惯性权重策略 & \{legacy, standard, adaptive\} & standard & 中（比 legacy 提升 0.4\%，比 adaptive 提升 62\%） \\
+认知因子 $c_1$ & $\{1.0, 1.5, 2.0, 2.5\}$ & 2 & 低（在合理范围内不敏感） \\
+社会因子 $c_2$ & $\{1.0, 1.5, 2.0, 2.5\}$ & 2 & 低（在合理范围内不敏感） \\
+基础变异率 $p_m^{\mathrm{base}}$ & $\{0, 0.01, 0.03, 0.05\}$ & 0.01 & 高（$p_m{=}0.01$ 比 $p_m{=}0$ 提升 35\%；$\ge 0.03$ 时退化） \\
+全局最优选择 & \{random, crowding\} & crowding & 高（比 random 提升 5.9\% HV，Spacing 改善 36\%） \\
+档案容量 & $\{50, 100, 200\}$ & 100 & 低（${>}100$ 后边际效益递减） \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -1,0 +1,33 @@
+% 此文件由 tools/generate_tables.py 自动生成，请勿手动编辑
+\begin{table}[h]
+\centering
+\caption{系统模型与传播参数}
+\label{tab:model_params}
+\begin{tabular}{lccc}
+\toprule
+参数 & 符号 & 数值 & 单位 \\
+\midrule
+\multicolumn{4}{c}{（a）简化指数衰减模型} \\
+\midrule
+最大探测概率 & $P_0$ & 0.95 & -- \\
+探测概率阈值 & $P_{\mathrm{th}}$ & 0.8 & -- \\
+衰减系数（标准场景） & $\beta$ & 0.01 & -- \\
+衰减系数（挑战场景） & $\beta$ & 0.03 & -- \\
+最大探测距离 & $R_{\max}$ & 60 & km \\
+空--地路径损耗指数 & $\alpha_{\mathrm{air}}$ & 2 & -- \\
+地--地路径损耗指数 & $\alpha_{\mathrm{ground}}$ & 4 & -- \\
+\midrule
+\multicolumn{4}{c}{（b）雷达方程模型} \\
+\midrule
+雷达发射功率 & $P_t$ & 3000 & W \\
+天线增益 & $G_t$ & 50 & dB \\
+信号波长 & $\lambda$ & 0.3 & m \\
+目标雷达截面积 & $\sigma$ & 0.1 & m$^2$ \\
+信号带宽 & $B$ & 15 & MHz \\
+检测因子 & $D_0$ & 12.5 & dB \\
+虚警概率 & $P_{\mathrm{fa}}$ & $10^{-6}$ & -- \\
+干扰机发射功率 & $P_t^{\mathrm{jam}}$ & 150 & W \\
+干扰机天线增益 & $G_t^{\mathrm{jam}}$ & 30 & dB \\
+\bottomrule
+\end{tabular}
+\end{table}

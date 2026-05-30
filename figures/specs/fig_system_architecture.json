@@ -1,0 +1,36 @@
+{
+  "title": "MOPSO-DT System Architecture for Air-Ground Radar Network Deployment",
+  "canvas": {"width": 900, "height": 620},
+  "nodes": [
+    {"id": "input_region", "label": "Deployment Region\n(Complex Polygon)", "x": 120, "y": 70, "shape": "rounded", "fill": "#E0F2FE"},
+    {"id": "input_radar", "label": "Radar/Jammer\nParameters", "x": 310, "y": 70, "shape": "rounded", "fill": "#E0F2FE"},
+    {"id": "input_task", "label": "Task Points\n(Uniform Grid)", "x": 500, "y": 70, "shape": "rounded", "fill": "#E0F2FE"},
+
+    {"id": "decomp", "label": "Region Decomposition\nHertel-Mehlhorn", "x": 210, "y": 180, "shape": "rounded", "fill": "#DBEAFE"},
+    {"id": "coord", "label": "Coordinate Transform\nVertical Intersection", "x": 430, "y": 180, "shape": "rounded", "fill": "#DBEAFE"},
+
+    {"id": "mopso_core", "label": "MOPSO-DT Optimizer\nStandard Inertia + Crowding GB\nNumba JIT Accelerated", "x": 450, "y": 320, "width": 220, "height": 70, "shape": "rounded", "fill": "#FEF3C7"},
+
+    {"id": "eval_ecr", "label": "ECR Evaluation\n(Coverage)", "x": 250, "y": 440, "shape": "rounded", "fill": "#DCFCE7"},
+    {"id": "eval_jmin", "label": "J_min Evaluation\n(Jamming Power)", "x": 650, "y": 440, "shape": "rounded", "fill": "#FEE2E2"},
+
+    {"id": "output_pareto", "label": "Pareto Front\n(ECR vs J_min)", "x": 450, "y": 560, "shape": "rounded", "fill": "#F3E8FF"}
+  ],
+  "edges": [
+    {"from": "input_region", "to": "decomp", "label": ""},
+    {"from": "decomp", "to": "coord", "label": "Convex Polygons"},
+    {"from": "coord", "to": "mopso_core", "label": "Normalized Space [0,1]^2"},
+    {"from": "input_radar", "to": "mopso_core", "label": "Config"},
+    {"from": "input_task", "to": "mopso_core", "label": "M Task Points"},
+    {"from": "mopso_core", "to": "eval_ecr", "label": "Decoded Positions"},
+    {"from": "mopso_core", "to": "eval_jmin", "label": "Decoded Positions"},
+    {"from": "eval_ecr", "to": "output_pareto", "label": "f1 = 1-ECR"},
+    {"from": "eval_jmin", "to": "output_pareto", "label": "f2 normalized"}
+  ],
+  "groups": [
+    {"label": "Inputs", "node_ids": ["input_region", "input_radar", "input_task"], "fill": "#F0F9FF", "stroke": "#BAE6FD"},
+    {"label": "Preprocessing (Algorithm 1-2)", "node_ids": ["decomp", "coord"], "fill": "#EFF6FF", "stroke": "#BFDBFE"},
+    {"label": "Multi-Objective Optimization (Algorithm 3)", "node_ids": ["mopso_core", "eval_ecr", "eval_jmin"], "fill": "#FFFBEB", "stroke": "#FDE68A"},
+    {"label": "Output", "node_ids": ["output_pareto"], "fill": "#FAF5FF", "stroke": "#E9D5FF"}
+  ]
+}

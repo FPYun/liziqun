@@ -6,6 +6,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 import os
+import argparse
+import json
+
+# Fix GBK encoding for emoji in paths
+sys.stdout.reconfigure(encoding='utf-8')
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
@@ -25,10 +30,37 @@ from src.benchmarks import find_knee_point, get_extreme_points
 from shapely.geometry import Polygon as ShapelyPolygon
 
 
+def save_figure(fig, png_path, dpi=150):
+    fig.savefig(png_path, dpi=dpi, bbox_inches='tight')
+    pdf_path = os.path.splitext(png_path)[0] + '.pdf'
+    fig.savefig(pdf_path, bbox_inches='tight')
+
+
+def _plot_sorted_front(ax, x_values, y_values, *, color='#2C3E50', label='Pareto前沿'):
+    """Connect Pareto points in objective order for paper-style front visualization."""
+    x_values = np.asarray(x_values, dtype=float)
+    y_values = np.asarray(y_values, dtype=float)
+    if len(x_values) < 2:
+        return
+    order = np.argsort(x_values)
+    ax.plot(
+        x_values[order],
+        y_values[order],
+        color=color,
+        linewidth=1.6,
+        alpha=0.85,
+        label=label,
+        zorder=2,
+    )
+
+
 def run_challenging_test():
     """更具挑战性的场景"""
+    np.random.seed(2026)
+
     print("\n" + "="*70)
     print("挑战性场景: 200km x 200km, 8 radars, beta=0.03 (更难覆盖)")
+    print("随机种子: 2026")
     print("="*70)
 
     # 创建大区域
@@ -63,7 +95,8 @@ def run_challenging_test():
 
     mopso = MOPSO_DT(
         J=J, N_bin=N_bin, evaluate_func=evaluate_func,
-        N_P=50, T_max=80, verbose=False
+        N_P=50, T_max=80, verbose=False,
+        w_strategy='standard', p_m_base=0.01, select_gb='crowding'
     )
 
     pareto_archive, stats = mopso.optimize()
@@ -118,7 +151,7 @@ def run_challenging_test():
     return pareto_solutions, objectives, ecr_array, j_min_array
 
 
-def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array):
+def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array, figure_dir=None):
     """可视化所有结果"""
     print("\n" + "="*70)
     print("可视化结果")
@@ -126,24 +159,33 @@ def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array):
 
     if pareto_solutions is None or len(pareto_solutions) == 0:
         return
+    if figure_dir is None:
+        figure_dir = os.path.join(PROJECT_ROOT, 'figures')
+    os.makedirs(figure_dir, exist_ok=True)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    # 图1: Pareto前沿 (f1 vs f2)
+    # 图1: Pareto前沿（物理指标）
     ax1 = axes[0, 0]
-    ax1.scatter(objectives[:, 0], objectives[:, 1], c='blue', s=80, alpha=0.7, edgecolors='black')
-    ax1.set_xlabel('f1 = 1 - ECR', fontsize=12)
-    ax1.set_ylabel('f2 = J_norm', fontsize=12)
-    ax1.set_title(f'Pareto前沿 (共{len(pareto_solutions)}个解)', fontsize=14)
+    _plot_sorted_front(ax1, ecr_array, j_min_array)
+    ax1.scatter(ecr_array, j_min_array, c='blue', s=80, alpha=0.7,
+                edgecolors='black', zorder=3)
+    ax1.set_xlabel('ECR', fontsize=12)
+    ax1.set_ylabel(r'$J_{\min}$', fontsize=12)
+    ax1.set_title(f'ECR-$J_{{\\min}}$前沿 (共{len(pareto_solutions)}个解)', fontsize=14)
     ax1.grid(True, alpha=0.3)
+    ax1.legend(frameon=False, fontsize=9)
 
     # 图2: ECR vs J_min (真实目标)
     ax2 = axes[0, 1]
-    scatter = ax2.scatter(ecr_array, j_min_array, c=objectives[:, 0], s=80, cmap='viridis', alpha=0.7)
+    _plot_sorted_front(ax2, ecr_array, j_min_array)
+    scatter = ax2.scatter(ecr_array, j_min_array, c=objectives[:, 0], s=80,
+                          cmap='viridis', alpha=0.7, zorder=3)
     ax2.set_xlabel('ECR', fontsize=12)
     ax2.set_ylabel('J_min (真实干扰功率)', fontsize=12)
     ax2.set_title('ECR vs J_min (颜色=f1值)', fontsize=14)
     ax2.grid(True, alpha=0.3)
+    ax2.legend(frameon=False, fontsize=9)
     plt.colorbar(scatter, ax=ax2, label='f1')
 
     # 图3: ECR分布直方图
@@ -156,15 +198,17 @@ def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array):
     # 图4: 相关性分析
     ax4 = axes[1, 1]
     correlation = np.corrcoef(ecr_array, j_min_array)[0, 1]
-    ax4.scatter(ecr_array, j_min_array, c='purple', s=80, alpha=0.7)
+    _plot_sorted_front(ax4, ecr_array, j_min_array)
+    ax4.scatter(ecr_array, j_min_array, c='purple', s=80, alpha=0.7, zorder=3)
     ax4.set_xlabel('ECR', fontsize=12)
     ax4.set_ylabel('J_min', fontsize=12)
     ax4.set_title(f'ECR vs J_min (相关系数: {correlation:.3f})', fontsize=14)
     ax4.grid(True, alpha=0.3)
+    ax4.legend(frameon=False, fontsize=9)
 
     plt.tight_layout()
-    save_path = os.path.join(PROJECT_ROOT, 'figures', '13_challenging_scene.png')
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    save_path = os.path.join(figure_dir, '13_challenging_scene.png')
+    save_figure(fig, save_path)
     print(f"    综合结果图已保存: {save_path}")
     plt.close()
 
@@ -180,7 +224,49 @@ def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array):
     return correlation
 
 
+def save_result_summary(pareto_solutions, objectives, ecr_array, j_min_array, output_dir):
+    """Save a compact JSON summary for staged thesis review."""
+    if output_dir is None:
+        return
+    os.makedirs(output_dir, exist_ok=True)
+
+    objectives = np.asarray(objectives, dtype=float)
+    ecr_array = np.asarray(ecr_array, dtype=float)
+    j_min_array = np.asarray(j_min_array, dtype=float)
+    correlation = None
+    if len(ecr_array) > 2:
+        correlation = float(np.corrcoef(ecr_array, j_min_array)[0, 1])
+    knee_idx = None
+    if len(objectives) >= 3:
+        knee_idx = int(find_knee_point(objectives))
+
+    payload = {
+        "scenario": "challenging_scene",
+        "n_solutions": int(len(ecr_array)),
+        "ecr_min": float(ecr_array.min()) if len(ecr_array) else None,
+        "ecr_max": float(ecr_array.max()) if len(ecr_array) else None,
+        "j_min_min": float(j_min_array.min()) if len(j_min_array) else None,
+        "j_min_max": float(j_min_array.max()) if len(j_min_array) else None,
+        "correlation": correlation,
+        "knee_index": knee_idx,
+        "ecr_values": ecr_array.tolist(),
+        "j_min_values": j_min_array.tolist(),
+        "objectives": objectives.tolist(),
+        "n_archived_solutions": int(len(pareto_solutions)),
+    }
+
+    path = os.path.join(output_dir, "challenging_scene_results.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"    Summary saved: {path}")
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--figure-dir", default=os.path.join(PROJECT_ROOT, 'figures'))
+    args = parser.parse_args()
+
     print("\n" + "#"*70)
     print("# 挑战性场景测试 - 产生更多样的Pareto解")
     print("#"*70)
@@ -194,7 +280,8 @@ def main():
     pareto_solutions, objectives, ecr_array, j_min_array = result
 
     # 可视化
-    visualize_results(pareto_solutions, objectives, ecr_array, j_min_array)
+    save_result_summary(pareto_solutions, objectives, ecr_array, j_min_array, args.output_dir)
+    visualize_results(pareto_solutions, objectives, ecr_array, j_min_array, args.figure_dir)
 
     print("\n" + "#"*70)
     print("# 测试完成")

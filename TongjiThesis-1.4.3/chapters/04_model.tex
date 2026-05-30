@@ -1,0 +1,166 @@
+\chapter{问题建模}\label{chap:model}
+
+本章把论文中的部署任务写成可计算的优化模型。模型从部署区域、空地协同雷达/干扰节点和电子对抗任务点开始定义，再给出探测概率、联合探测、等效干扰强度和目标归一化方式。后续所有优化器都调用这一套评估函数，因此本章的重点是保证变量、约束和目标函数在各算法之间保持一致。
+
+\section{系统场景与符号定义}
+
+\subsection{符号定义}
+
+表~\ref{tab:notation}汇总了本文使用的主要数学符号。
+
+\begin{table}[!htbp]
+\centering
+\caption{主要符号定义}
+\label{tab:notation}
+\begin{tabular}{cl}
+\toprule
+符号 & 含义 \\
+\midrule
+$\mathcal{R}$ & 二维部署区域 \\
+$J$ & 雷达/干扰节点数量 \\
+$M$ & 任务点数量 \\
+$\mathbf{x}_j = (x_j, y_j)$ & 第$j$个雷达的物理位置 \\
+$P_0$ & 最大探测概率（近距离） \\
+$\beta$ & 探测概率衰减系数 \\
+$P_{\text{th}}$ & 探测阈值 \\
+$R_{\max}$ & 最大探测距离 \\
+$\alpha_{\text{air}}, \alpha_{\text{ground}}$ & A2G/G2G路径损耗指数 \\
+$\ECR$ & 有效覆盖率 (Effective Coverage Rate) \\
+$\Jmin$ & 最小等效干扰强度 \\
+$J_{\text{ref}}$ & 参考等效干扰强度（归一化） \\
+$N_{\text{bin}}$ & 区域编码位数 \\
+$N_P$ & 粒子数 \\
+$T_{\max}$ & 最大迭代次数 \\
+$w$ & 惯性权重 \\
+$c_1, c_2$ & 认知/社会学习因子 \\
+$p_m$ & 变异概率 \\
+$\mathcal{A}$ & 外部档案（Pareto解集） \\
+HV & 超体积 (Hypervolume) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{部署区域与雷达节点}
+
+设二维可部署区域为$\mathcal{R} \subset \R^2$。该区域可以是不规则多边形，也可以包含空洞或多个连通分量；这些几何细节不在目标函数中省略，而是交由第四章的区域分解和坐标变换处理。需要放置的节点数为$J$，第$j$个雷达/电子对抗节点的位置记为$\mathbf{x}_j=(x_j,y_j)\in\mathcal{R}$，整体部署方案写作$\mathbf{X}=[\mathbf{x}_1,\mathbf{x}_2,\ldots,\mathbf{x}_J]^T\in\R^{J\times2}$。
+
+\subsection{任务点与权重}
+
+任务点集合记为$\mathcal{T}=\{\mathbf{t}_1,\mathbf{t}_2,\ldots,\mathbf{t}_M\}$，其中$\mathbf{t}_m=(x_m,y_m)$。任务点可理解为电子对抗任务中需要重点侦察、覆盖或压制的代表位置。若不同位置重要性相同，则令$w_m=1$；若需要突出重点区域，也可给部分任务点更高权重。总权重为$W=\sum_m w_m$。
+
+\section{雷达网络探测与干扰模型}
+
+\subsection{探测概率模型}
+
+对于单个雷达$j$和目标位置$m$，探测概率采用指数衰减模型：
+
+\begin{equation}
+\Pdet(j, m) = P_0 \cdot \exp(-\beta \cdot d_{jm}) \cdot \mathbf{1}[d_{jm} \leq R_{\max}]
+\label{eq:detection_prob}
+\end{equation}
+
+其中$P_0$为最大探测概率（近距离），$\beta$为衰减系数，$d_{jm}$为雷达$j$与目标$m$之间的欧氏距离，$R_{\max}$为最大探测距离。
+
+对于采用雷达方程模型的场景，探测概率通过信噪比（SNR）计算：
+
+\begin{equation}
+\text{SNR}(j, m) = \frac{P_t \cdot G^2 \cdot \lambda^2 \cdot \sigma}{(4\pi)^3 \cdot k \cdot T_0 \cdot B \cdot d_{jm}^4}
+\label{eq:snr}
+\end{equation}
+
+\begin{equation}
+\Pdet(j, m) = \exp\left(-\frac{D_0}{1 + \text{SNR}(j, m)}\right)
+\label{eq:detection_prob_radar}
+\end{equation}
+
+其中$P_t$为雷达发射功率，$G$为天线增益（线性值），$\lambda$为信号波长，$\sigma$为目标雷达截面积（RCS），$k=1.38\times10^{-23}$ J/K为玻尔兹曼常数，$T_0=290$ K为标准温度，$B$为信号带宽，$D_0$为检测因子（线性值）。
+
+\subsection{联合探测概率}
+
+雷达网络采用OR融合规则计算任务点$m$处的联合探测概率：
+
+\begin{equation}
+\Pjoint(m) = 1 - \prod_{j=1}^{J} \left(1 - \Pdet(j, m)\right)
+\label{eq:joint_prob}
+\end{equation}
+
+OR融合对应“任一节点成功探测即认为该任务点被发现”的近似。它没有显式建模雷达间相关性，但能把多节点冗余覆盖反映到$P_{\text{joint}}(m)$中。本文随后用阈值$P_{\text{th}}$判断任务点是否被计入有效覆盖。
+
+\subsection{等效干扰强度模型}
+
+第$j$个干扰源在任务点$m$处的等效干扰强度定义为：
+
+\begin{equation}
+J_j(m) = \frac{P_j^{\text{jammer}} \cdot G_j^{\text{jammer}}}{4\pi \cdot d_{jm}^{\alpha_j}}
+\label{eq:jamming}
+\end{equation}
+
+其中$P_j^{\text{jammer}}$为干扰发射功率，$G_j^{\text{jammer}}$为干扰天线增益，$\alpha_j$为路径损耗指数：空中节点（A2G链路）取$\alpha_j \approx 2.0$--2.5，地面节点（G2G链路）取$\alpha_j \approx 3.5$--4.0。当$\alpha_j=2$且常数项按自由空间传播校准时，该量可解释为功率密度；当$\alpha_j\neq 2$时，本文将其作为距离衰减后的等效压制强度，用于比较不同部署方案下任务点受到的相对干扰水平。
+
+目标函数归一化用于控制两个目标的量纲差异。覆盖率ECR天然落在$[0,1]$内，而干扰强度的数值尺度随功率、距离和路径损耗指数变化较大。为避免一个目标在HV、Spacing和拥挤距离计算中主导数值尺度，本文使用$f_1=1-\text{ECR}$和$f_2=J_{\text{ref}}/(J_{\min}+J_{\text{ref}})$。其中$J_{\text{ref}}$由实验场景预先给定。由于$f_2$随$J_{\min}$严格递减，最小化$f_2$与提高最薄弱任务点的压制强度等价。
+
+\section{目标函数与形式化问题}
+
+\subsection{目标函数定义}
+
+目标函数1为感知效能最小化目标。
+
+有效覆盖率（Effective Coverage Rate, ECR）定义为联合探测概率达到阈值$P_{\text{th}}$的任务点比例：
+
+\begin{equation}
+\text{ECR}(\mathbf{X}) = \frac{1}{W} \sum_{m=1}^{M} w_m \cdot \mathbf{1}[P_{\text{joint}}(m) \geq P_{\text{th}}]
+\label{eq:ecr}
+\end{equation}
+
+相应的最小化目标函数为$f_1(\mathbf{X}) = 1 - \text{ECR}(\mathbf{X})$。
+
+目标函数2为压制效能最小化目标。
+
+在所有任务点中，总等效干扰强度的最小值为：
+
+\begin{equation}
+J_{\min}(\mathbf{X}) = \min_{m \in \{1,\ldots,M\}} \sum_{j=1}^{J} J_j(m)
+\label{eq:jmin}
+\end{equation}
+
+该指标取所有任务点中最小的总干扰强度，因而更关注“最弱点”而不是平均压制水平。相应的归一化最小化目标写作$f_2(\mathbf{X})=J_{\text{ref}}/(J_{\min}(\mathbf{X})+J_{\text{ref}})$。在后续实验图中，$J_{\min}$越高通常意味着对薄弱任务点的保护越充分，但可能伴随覆盖范围收缩。
+
+\subsection{优化问题形式化}
+
+综合以上定义，考虑空中平台与地面节点协同带来的空地异构链路差异，空地协同雷达网络部署优化问题可形式化为如下多目标优化问题：
+
+\begin{equation}
+\begin{aligned}
+\min_{\mathbf{X} \in \mathcal{R}^J} \quad & \mathbf{f}(\mathbf{X}) = \left[1 - \text{ECR}(\mathbf{X}), \; \frac{J_{\text{ref}}}{J_{\min}(\mathbf{X}) + J_{\text{ref}}}\right]^T \\
+\text{s.t.} \quad & \mathbf{x}_j \in \mathcal{R}, \quad j = 1, 2, \ldots, J
+\end{aligned}
+\label{eq:optimization_problem}
+\end{equation}
+
+该问题的连续变量是各节点物理位置$\mathbf{x}_j$。难点在于$\mathcal{R}$不一定是凸集，直接在二维坐标上更新粒子会频繁越界。第四章因此先把区域拆分并编码，再把归一化坐标映射回物理空间。
+
+图~\ref{fig:objective_inference}给出了目标函数的计算链路。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{figures/fig_inference.pdf}
+\caption{候选部署方案的目标函数计算链路。}
+\label{fig:objective_inference}
+\end{figure}
+
+\FloatBarrier
+
+一个粒子先被解码为物理部署坐标，再按A2G/G2G链路类型计算传播损耗；随后得到ECR和$J_{\min}$，并转成两个最小化目标$f_1$和$f_2$。后续对比算法虽然搜索策略不同，但都使用这条评估链路。
+
+\paragraph{指标物理意义与目标冲突}
+本文模型中的 ECR 和 $J_{\min}$ 分别对应部署代价与网络最小观测性能两个角度。ECR 用于描述候选部署方案在给定任务区域内的资源消耗水平，其变化反映了雷达节点数量、节点位置以及覆盖区域之间的综合关系；$J_{\min}$ 则关注整个任务区域中最不利位置处的观测性能，强调网络在边界、遮蔽或几何条件较差区域的保障能力。二者之间通常存在冲突：降低 ECR 往往意味着减少资源投入或压缩部署范围，而提高 $J_{\min}$ 通常需要在关键区域增加更充分的观测冗余。因此，本文没有将两个目标简单加权为单目标函数，而是保留其多目标形式，以便在实验中观察不同算法对代价和性能权衡关系的搜索能力。
+
+\paragraph{约束建模的工程含义}
+区域约束和边界约束是本文模型区别于一般连续优化问题的重要部分。若直接在物理坐标空间中随机更新雷达位置，粒子容易落在不可部署区域或边界外侧，后续再通过裁剪方式修正可能改变搜索方向，使算法在边界附近产生不稳定行为。本文将任务区域分解与坐标变换结合起来，使候选位置首先在规则化参数空间中生成，再映射回真实物理区域。这种处理并不改变部署问题的物理含义，但有助于减少无效解的产生，并使边界附近的搜索过程更加平滑。对于形状不规则、存在明显边界约束的部署场景，这一建模步骤有助于提高算法输出结果的可解释性。
+
+\paragraph{归一化目标与物理指标的对应}
+算法内部使用归一化目标是为了改善不同量纲目标共同优化时的数值稳定性。例如，最小观测性能可通过 $f_2=J_{\mathrm{ref}}/(J_{\min}+J_{\mathrm{ref}})$ 转换为最小化形式，使其可以与代价目标一起进入粒子支配关系判断和档案维护过程。该归一化目标只服务于搜索过程，不改变论文结果展示中 $J_{\min}$ 的物理含义。因此，在图表和结果解释中，本文优先使用 ECR 与 $J_{\min}$ 描述部署方案本身；只有在说明算法内部目标函数时，才讨论归一化后的优化表达。
+
+\section{本章小结}
+
+本章将面向电子对抗任务的空地协同部署问题形式化为双目标优化模型。模型先定义雷达节点、任务点和复杂区域约束，再分别给出探测覆盖和等效干扰强度计算方式，最后把ECR和$J_{\min}$转换为统一的最小化目标。该建模为下一章的区域分解、坐标变换和MOPSO-DT搜索过程提供了统一评估接口。

@@ -1,0 +1,79 @@
+﻿\documentclass[
+  oneside,
+  degree=bachelor,
+  field=science,
+  fullwidthstop=circle,
+  fontset=windows,
+  times=false,
+  minted=true,
+  biblatex=true,
+]{tongjithesis}
+
+
+\usepackage{placeins}
+\usepackage{needspace}
+\tjbibresource{bib/note.bib}
+\input{math_commands.tex}
+
+
+% Keep display equations visually consistent across chapters.
+\AtBeginDocument{%
+  \setlength{\abovedisplayskip}{6pt plus 2pt minus 2pt}%
+  \setlength{\belowdisplayskip}{6pt plus 2pt minus 2pt}%
+  \setlength{\abovedisplayshortskip}{4pt plus 2pt minus 2pt}%
+  \setlength{\belowdisplayshortskip}{4pt plus 2pt minus 2pt}%
+  \setlength{\textfloatsep}{8pt plus 2pt minus 2pt}%
+  \setlength{\floatsep}{6pt plus 2pt minus 2pt}%
+  \setlength{\intextsep}{6pt plus 2pt minus 2pt}%
+  \setlength{\abovecaptionskip}{3pt plus 1pt minus 1pt}%
+  \setlength{\belowcaptionskip}{0pt plus 1pt minus 1pt}%
+}
+\raggedbottom
+% Compatibility with algorithmic commands used by the thesis chapters.
+\providecommand{\STATE}{\State}
+\providecommand{\FOR}[1]{\For{#1}}
+\providecommand{\ENDFOR}{\EndFor}
+\providecommand{\IF}[1]{\If{#1}}
+\providecommand{\ENDIF}{\EndIf}
+\providecommand{\TO}{to}
+
+\newtheorem{definition}{定义}
+\newtheorem{theorem}{定理}
+\newtheorem{lemma}{引理}
+\newtheorem{proposition}{命题}
+\newtheorem{corollary}{推论}
+
+\begin{document}
+
+\input{chapters/metadata}
+\MakeCover
+\cleardoublepage
+\MakeInfoPage
+\cleardoublepage
+
+\frontmatter
+\input{chapters/00_abstract}
+
+\clearpage
+\tableofcontents
+\cleardoublepage
+
+\mainmatter
+\input{chapters/02_intro}
+\input{chapters/03_theory}
+\input{chapters/04_model}
+\input{chapters/05_algorithm}
+\input{chapters/06_experiments}
+\input{chapters/07_conclusion}
+
+\makereferences
+
+\appendix
+\input{chapters/appendix}
+
+\backmatter
+\input{chapters/ack}
+
+\end{document}
+
+

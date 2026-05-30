@@ -15,6 +15,10 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import time
+import argparse
+import json
+
+sys.stdout.reconfigure(encoding='utf-8')
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
@@ -32,6 +36,30 @@ from src.mopso import MOPSO_DT
 from src.benchmarks import find_knee_point, get_extreme_points
 
 from shapely.geometry import Polygon as ShapelyPolygon
+
+
+def save_figure(fig, png_path, dpi=150):
+    fig.savefig(png_path, dpi=dpi, bbox_inches='tight')
+    pdf_path = os.path.splitext(png_path)[0] + '.pdf'
+    fig.savefig(pdf_path, bbox_inches='tight')
+
+
+def _plot_sorted_front(ax, x_values, y_values, *, color='#2C3E50', label='Pareto前沿'):
+    """Connect Pareto points in objective order for paper-style front visualization."""
+    x_values = np.asarray(x_values, dtype=float)
+    y_values = np.asarray(y_values, dtype=float)
+    if len(x_values) < 2:
+        return
+    order = np.argsort(x_values)
+    ax.plot(
+        x_values[order],
+        y_values[order],
+        color=color,
+        linewidth=1.6,
+        alpha=0.85,
+        label=label,
+        zorder=2,
+    )
 
 
 def create_paper_radar_configs(n_radars=8):
@@ -83,8 +111,10 @@ def run_paper_experiment():
     - 区域: 300km × 300km
     - 任务点: 10×10网格 (100个点, 30km间距)
     - 雷达: 8个节点
-    - MOPSO: N_P=10, T_max=50, p_c=0.5
+    - MOPSO: N_P=50, T_max=500, p_c=0.9, standard + crowding + p_m=0.01
     """
+    np.random.seed(2026)
+
     print("\n" + "=" * 70)
     print("参考论文对齐仿真实验")
     print("=" * 70)
@@ -92,7 +122,8 @@ def run_paper_experiment():
     print("区域: 300km × 300km")
     print("任务点: 10×10网格 (100个点, 30km间距)")
     print("雷达: 8个节点 (雷达方程模型)")
-    print("MOPSO: N_P=10, T_max=50, p_c=0.5")
+    print("MOPSO: N_P=50, T_max=500, p_c=0.9, standard + crowding + p_m=0.01")
+    print("随机种子: 2026")
     print("=" * 70)
 
     # 创建区域
@@ -126,9 +157,9 @@ def run_paper_experiment():
     J = 8
     N_bin = max(1, int(np.ceil(np.log2(len(polygons)))))
     print(f"    J={J}, N_bin={N_bin}")
-    print(f"    粒子数: 10, 最大迭代: 50")
-    print(f"    c1=2, c2=2, p_c=0.5")
-    print(f"    惯性权重: w = -0.4/50 * t + 0.4")
+    print(f"    粒子数: 50, 最大迭代: 500")
+    print(f"    c1=2, c2=2, p_c=0.9")
+    print(f"    惯性权重: w = 0.9 - 0.5*t/500 (standard)")
 
     # 计算J_max_ref用于归一化
     # 先估算J_min的量级
@@ -145,8 +176,9 @@ def run_paper_experiment():
 
     mopso = MOPSO_DT(
         J=J, N_bin=N_bin, evaluate_func=evaluate_func,
-        N_P=10, T_max=50, c_1=2.0, c_2=2.0,
-        p_c=0.5, archive_size=50, verbose=False
+        N_P=50, T_max=500, c_1=2.0, c_2=2.0,
+        p_c=0.9, archive_size=100, verbose=False,
+        w_strategy='standard', p_m_base=0.01, select_gb='crowding'
     )
 
     print("\n    开始优化...")
@@ -221,11 +253,15 @@ def run_paper_experiment():
     }
 
 
-def visualize_results(results):
+def visualize_results(results, figure_dir=None):
     """生成论文级可视化图片"""
     print("\n" + "=" * 70)
     print("生成可视化图片")
     print("=" * 70)
+
+    if figure_dir is None:
+        figure_dir = os.path.join(PROJECT_ROOT, 'figures')
+    os.makedirs(figure_dir, exist_ok=True)
 
     objectives = results['objectives']
     ecr_array = results['ecr_array']
@@ -272,15 +308,18 @@ def visualize_results(results):
     ax1.set_aspect('equal')
     ax1.grid(True, alpha=0.3)
 
-    # 图2: Pareto前沿
+    # 图2: Pareto前沿（物理指标）
     ax2 = axes[0, 1]
-    scatter = ax2.scatter(objectives[:, 0], objectives[:, 1],
+    _plot_sorted_front(ax2, ecr_array, j_min_array)
+    scatter = ax2.scatter(ecr_array, j_min_array,
                          c=np.arange(len(objectives)), cmap='viridis',
-                         s=80, alpha=0.7, edgecolors='black', linewidth=0.5)
-    ax2.set_xlabel('f1 = 1 - ECR', fontsize=12)
-    ax2.set_ylabel('f2 = J_norm', fontsize=12)
-    ax2.set_title(f'Pareto前沿 ({len(objectives)}个解)', fontsize=14)
+                         s=80, alpha=0.7, edgecolors='black', linewidth=0.5,
+                         zorder=3)
+    ax2.set_xlabel('ECR', fontsize=12)
+    ax2.set_ylabel(r'$J_{\min}$ (W/m$^2$)', fontsize=12)
+    ax2.set_title(f'ECR-$J_{{\\min}}$前沿 ({len(objectives)}个解)', fontsize=14)
     ax2.grid(True, alpha=0.3)
+    ax2.legend(frameon=False, fontsize=9)
     plt.colorbar(scatter, ax=ax2, label='解序号')
 
     # 图3: ECR热力图
@@ -364,27 +403,30 @@ def visualize_results(results):
     ax4.set_ylabel('Y (km)', fontsize=12)
     ax4.set_title('J_min热力图', fontsize=14)
     ax4.set_aspect('equal')
-    plt.colorbar(im4, ax=ax4, label='干扰功率密度 (W/m²)')
+    plt.colorbar(im4, ax=ax4, label='干扰功率密度 (W/m^2)')
 
     plt.tight_layout()
-    save_path = os.path.join(PROJECT_ROOT, 'figures', 'paper_aligned_results.png')
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    save_path = os.path.join(figure_dir, 'paper_aligned_results.png')
+    save_figure(fig, save_path)
     print(f"    综合结果图已保存: {save_path}")
     plt.close()
 
-    # 单独保存Pareto前沿图
+    # 单独保存物理指标Pareto前沿图
     fig2, ax = plt.subplots(figsize=(8, 6))
-    scatter = ax.scatter(objectives[:, 0], objectives[:, 1],
+    _plot_sorted_front(ax, ecr_array, j_min_array)
+    scatter = ax.scatter(ecr_array, j_min_array,
                         c=np.arange(len(objectives)), cmap='viridis',
-                        s=100, alpha=0.7, edgecolors='black', linewidth=0.5)
-    ax.set_xlabel('f1 = 1 - ECR', fontsize=14)
-    ax.set_ylabel('f2 = J_norm', fontsize=14)
-    ax.set_title(f'Pareto前沿 ({len(objectives)}个解)', fontsize=16)
+                        s=100, alpha=0.7, edgecolors='black', linewidth=0.5,
+                        zorder=3)
+    ax.set_xlabel('ECR', fontsize=14)
+    ax.set_ylabel(r'$J_{\min}$ (W/m$^2$)', fontsize=14)
+    ax.set_title(f'ECR-$J_{{\\min}}$前沿 ({len(objectives)}个解)', fontsize=16)
     ax.grid(True, alpha=0.3)
+    ax.legend(frameon=False, fontsize=11)
     plt.colorbar(scatter, ax=ax, label='解序号')
     plt.tight_layout()
-    save_path2 = os.path.join(PROJECT_ROOT, 'figures', 'paper_aligned_pareto.png')
-    plt.savefig(save_path2, dpi=150, bbox_inches='tight')
+    save_path2 = os.path.join(figure_dir, 'paper_aligned_pareto.png')
+    save_figure(fig2, save_path2)
     print(f"    Pareto前沿图已保存: {save_path2}")
     plt.close()
 
@@ -394,17 +436,59 @@ def visualize_results(results):
         correlation = np.corrcoef(ecr_array, j_min_array)[0, 1]
         ax.scatter(ecr_array, j_min_array, c='purple', s=80, alpha=0.7)
         ax.set_xlabel('ECR', fontsize=14)
-        ax.set_ylabel('J_min (W/m²)', fontsize=14)
+        ax.set_ylabel('J_min (W/m^2)', fontsize=14)
         ax.set_title(f'ECR vs J_min (相关系数: {correlation:.3f})', fontsize=16)
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
-        save_path3 = os.path.join(PROJECT_ROOT, 'figures', 'paper_aligned_correlation.png')
-        plt.savefig(save_path3, dpi=150, bbox_inches='tight')
+        save_path3 = os.path.join(figure_dir, 'paper_aligned_correlation.png')
+        save_figure(fig3, save_path3)
         print(f"    相关性图已保存: {save_path3}")
         plt.close()
 
 
+def save_result_summary(results, output_dir):
+    """Save a compact JSON summary for staged thesis review."""
+    if output_dir is None:
+        return
+    os.makedirs(output_dir, exist_ok=True)
+
+    objectives = np.asarray(results['objectives'], dtype=float)
+    ecr_array = np.asarray(results['ecr_array'], dtype=float)
+    j_min_array = np.asarray(results['j_min_array'], dtype=float)
+    correlation = None
+    if len(ecr_array) > 2:
+        correlation = float(np.corrcoef(ecr_array, j_min_array)[0, 1])
+    knee_idx = None
+    if len(objectives) >= 3:
+        knee_idx = int(find_knee_point(objectives))
+
+    payload = {
+        "scenario": "paper_aligned",
+        "elapsed_seconds": float(results.get('elapsed', 0.0)),
+        "n_solutions": int(len(ecr_array)),
+        "ecr_min": float(ecr_array.min()) if len(ecr_array) else None,
+        "ecr_max": float(ecr_array.max()) if len(ecr_array) else None,
+        "j_min_min": float(j_min_array.min()) if len(j_min_array) else None,
+        "j_min_max": float(j_min_array.max()) if len(j_min_array) else None,
+        "correlation": correlation,
+        "knee_index": knee_idx,
+        "ecr_values": ecr_array.tolist(),
+        "j_min_values": j_min_array.tolist(),
+        "objectives": objectives.tolist(),
+    }
+
+    path = os.path.join(output_dir, "paper_aligned_results.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"    Summary saved: {path}")
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--figure-dir", default=os.path.join(PROJECT_ROOT, 'figures'))
+    args = parser.parse_args()
+
     print("\n" + "#" * 70)
     print("# 基于参考论文参数的仿真实验")
     print("#" * 70)
@@ -416,7 +500,8 @@ def main():
         return
 
     # 可视化
-    visualize_results(results)
+    save_result_summary(results, args.output_dir)
+    visualize_results(results, args.figure_dir)
 
     print("\n" + "#" * 70)
     print("# 实验完成")

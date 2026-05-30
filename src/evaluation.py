@@ -5,7 +5,7 @@
 
 功能：
 1. ECR（有效覆盖率）计算 - 感知效能
-2. 干扰功率密度计算 - 压制效能
+2. 等效干扰强度计算 - 压制效能
 3. 空地协同传播模型（区分A2G和G2G链路）
 4. 多目标综合评估
 
@@ -178,15 +178,11 @@ def calculate_reception_probability(
     dy = radar_pos[1] - target_pos[1]
     d = np.sqrt(dx**2 + dy**2)
 
-    # 根据雷达类型选择路径损耗模型
-    if config.is_air:
-        # 空-地链路：自由空间传播
-        path_loss = path_loss_air_to_ground(d, config.alpha_air)
-    else:
-        # 地-地链路：受遮挡影响
-        path_loss = path_loss_ground_to_ground(d, config.alpha_ground)
+    # 最大探测距离检查
+    if d > config.R_max:
+        return 0.0
 
-    # 探测概率模型
+    # 探测概率模型: P_detect = P0 * exp(-beta * d)
     P_detect = config.P0 * np.exp(-config.beta * d)
 
     return np.clip(P_detect, 0.0, 1.0)
@@ -198,7 +194,7 @@ def calculate_jamming_power(
     config: RadarConfig
 ) -> float:
     """
-    计算干扰源在目标处的功率密度
+    计算干扰源在目标处的等效干扰强度
 
     J = P * G / (4π * d^alpha)
 
@@ -208,7 +204,7 @@ def calculate_jamming_power(
         config: 干扰源配置参数
 
     Returns:
-        干扰功率密度 J
+        等效干扰强度 J
     """
     # 计算欧氏距离
     dx = jammer_pos[0] - target_pos[0]
@@ -224,9 +220,9 @@ def calculate_jamming_power(
     else:
         alpha = config.alpha_ground
 
-    # 干扰功率密度（非相干叠加）
-    # J = P * G / (4π * d^alpha)
-    J = config.P0 / (4 * np.pi * (d ** alpha))
+    # 等效干扰强度（非相干叠加）
+    # J = P_t / (4π * d^alpha)
+    J = config.jammer_P_t / (4 * np.pi * (d ** alpha))
 
     return J
 
@@ -387,20 +383,23 @@ def _calc_detection_matrix_simple(
     dist = xp.sqrt(xp.sum(diff ** 2, axis=2))
     P0_arr = xp.array([c.P0 for c in radar_configs])[np.newaxis, :]
     beta_arr = xp.array([c.beta for c in radar_configs])[np.newaxis, :]
-    return xp.clip(P0_arr * xp.exp(-beta_arr * dist), 0.0, 1.0)
+    P_detect = P0_arr * xp.exp(-beta_arr * dist)
+    R_max_arr = xp.array([c.R_max for c in radar_configs])[np.newaxis, :]
+    P_detect = xp.where(dist <= R_max_arr, P_detect, 0.0)
+    return xp.clip(P_detect, 0.0, 1.0)
 
 
 def _calc_jamming_matrix_simple(
     radar_xy, task_xy, radar_configs: List[RadarConfig]
 ):
-    """向量化计算干扰功率密度矩阵 (M, J)，简化模型。支持 GPU 数组。"""
+    """向量化计算等效干扰强度矩阵 (M, J)，简化模型。支持 GPU 数组。"""
     diff = task_xy[:, np.newaxis, :] - radar_xy[np.newaxis, :, :]
     dist = xp.sqrt(xp.sum(diff ** 2, axis=2))
     dist = xp.maximum(dist, 1e-9)
     alpha_arr = xp.array([c.alpha_air if c.is_air else c.alpha_ground
                           for c in radar_configs])[np.newaxis, :]
-    P0_arr = xp.array([c.P0 for c in radar_configs])[np.newaxis, :]
-    return P0_arr / (4 * np.pi * (dist ** alpha_arr))
+    P_t_arr = xp.array([c.jammer_P_t for c in radar_configs])[np.newaxis, :]
+    return P_t_arr / (4 * np.pi * (dist ** alpha_arr))
 
 
 def _calc_detection_matrix_radar_eq(
@@ -471,7 +470,7 @@ def calculate_ecr(
     continuous_coords: Optional[np.ndarray] = None
 ) -> float:
     """
-    计算有效覆盖率 (Expected Coverage Rate) - GPU 加速版本
+    计算有效覆盖率 (Effective Coverage Rate) - GPU 加速版本
 
     ECR = (1/M) * Σ I(P_joint(m) >= P_th)
     P_joint(m) = 1 - Π(1 - P_detect(i,m))
@@ -519,7 +518,7 @@ def calculate_jamming_density(
     continuous_coords: Optional[np.ndarray] = None
 ) -> float:
     """
-    计算最小干扰功率密度（用于max-min优化）- GPU 加速版本
+    计算最小等效干扰强度（用于max-min优化）- GPU 加速版本
 
     J_min = min_m { Σ_j J_j(m) }
     """
@@ -538,7 +537,7 @@ def calculate_jamming_density(
     radar_xy_g = _to_gpu(radar_xy)
     task_xy_g = _to_gpu(task_xy)
 
-    # 计算干扰功率密度矩阵 — 在 GPU 上执行
+    # 计算等效干扰强度矩阵 — 在 GPU 上执行
     if jammer_configs[0].use_radar_equation:
         J_mat = _calc_jamming_matrix_radar_eq(radar_xy_g, task_xy_g, jammer_configs)
     else:
@@ -643,7 +642,7 @@ def evaluate_deployment(
 
     计算两个目标：
     1. f1: 1 - ECR (最小化1-覆盖率)
-    2. f2: 1/J_min (最小化干扰功率密度的倒数，即最大化J_min)
+    2. f2: 1/J_min (最小化等效干扰强度的倒数，即最大化J_min)
 
     Args:
         Phi: 决策变量矩阵 (J, 2+N_bin)
@@ -675,7 +674,7 @@ def evaluate_deployment(
         continuous_coords=continuous.reshape(J, 2)
     )
 
-    # 计算最小干扰功率密度（压制效能）
+    # 计算最小等效干扰强度（压制效能）
     J_min = calculate_jamming_density(
         positions_array,
         task_points,
@@ -728,7 +727,7 @@ def create_evaluate_function(
 
 def generate_uniform_task_points(
     region: Polygon,
-    grid_size: int = 20
+    grid_size: int = 40
 ) -> List[TaskPoint]:
     """
     在区域内生成均匀分布的任务点
@@ -780,11 +779,11 @@ if __name__ == "__main__":
     print(f"   距离: 10.0, 探测概率: {P_detect:.4f}")
 
     # 测试干扰功率计算
-    print("\n2. 干扰功率密度计算:")
+    print("\n2. 等效干扰强度计算:")
     jammer_pos = (0.0, 0.0)
     J = calculate_jamming_power(jammer_pos, target_pos, radar_config)
     print(f"   干扰源位置: {jammer_pos}, 目标位置: {target_pos}")
-    print(f"   干扰功率密度: {J:.6f}")
+    print(f"   等效干扰强度: {J:.6f}")
 
     # 测试二进制解码
     print("\n3. 二进制解码:")
@@ -880,19 +879,19 @@ def calculate_boundary_ecr(
 
 def normalize_jamming_power(J_min: float, J_max: float = 1.0) -> float:
     """
-    归一化干扰功率密度到[0,1]范围
+    归一化等效干扰强度到[0,1]范围
 
     使用非线性变换使目标函数尺度可比
 
     Args:
-        J_min: 最小干扰功率密度
-        J_max: 参考最大干扰功率密度（用于归一化）
+        J_min: 最小等效干扰强度
+        J_max: 参考最大等效干扰强度（用于归一化）
 
     Returns:
         归一化后的值 ∈ [0, 1]
     """
     if J_min < 1e-10:
-        return 1.0  # 最小干扰功率密度为0时，惩罚最大
+        return 1.0  # 最小等效干扰强度为0时，惩罚最大
     # 非线性变换：使较小的J_min变化也能被感知
     normalized = J_min / (J_min + J_max)
     return normalized
@@ -911,7 +910,7 @@ def evaluate_deployment_normalized(
     综合评估函数（归一化版本）
 
     改进点：
-    1. 对干扰功率密度进行归一化
+    1. 对等效干扰强度进行归一化
     2. 引入尺度因子使两个目标可比
     3. 增加扰动以产生更多Pareto解
 
@@ -943,7 +942,7 @@ def evaluate_deployment_normalized(
         continuous_coords=continuous.reshape(J, 2)
     )
 
-    # 计算最小干扰功率密度（压制效能）
+    # 计算最小等效干扰强度（压制效能）
     J_min = calculate_jamming_density(
         positions_array, task_points, radar_configs,
         convex_polygons=convex_polygons,
@@ -955,8 +954,8 @@ def evaluate_deployment_normalized(
     f1 = 1 - ECR  # 范围 [0, 1]
 
     # 归一化f2到相同尺度
-    # 使用饱和函数避免极端值
-    f2 = J_min / (J_min + J_max_ref + 1e-10)
+    # f2 = J_max/(J_min+J_max), 最小化 f2 → 最大化 J_min（压制越强越好）
+    f2 = J_max_ref / (J_min + J_max_ref + 1e-10)
 
     return np.array([f1, f2])
 

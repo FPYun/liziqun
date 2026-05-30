@@ -2,6 +2,13 @@
 
 基于区域分解和多目标粒子群优化（MOPSO-DT）的雷达网络部署优化算法，同时优化期望覆盖率（ECR）和干扰功率密度（J_min）。
 
+## 当前维护状态
+
+- 当前论文主源位于 `TongjiThesis-1.4.3/`，`TongjiThesis-1.4.0/` 仅作为旧版本地模板容器保留对照。
+- 结构化实验结果统一收集到 `results/`，审计与验证报告统一收集到 `reports/`。
+- 论文内容应基于最新实验结果、审计报告和 `NARRATIVE_REPORT.md` 更新，避免从旧草稿目录复制过期结论。
+- GitHub 上传前建议至少运行快速实验、结果同步和相关测试，确保说明文件、结果文件和论文源保持一致。
+
 ## 项目结构
 
 ```
@@ -27,22 +34,33 @@ liziqun/
 │   ├── experiment_challenging.py        # 挑战性场景
 │   ├── experiment_paper_aligned.py      # 论文参数对齐
 │   ├── tune_mopso.py                    # MOPSO参数调优
+│   ├── compare_algorithms.py            # 基线算法对比
+│   ├── ablation_core.py                 # 消融实验公共逻辑
 │   └── quick_compare.py                 # 改进前后A/B对比
 │
 ├── tests/                      # 测试文件
 │   ├── test_mopso.py               # MOPSO算法测试
 │   ├── test_mopso_pytest.py        # MOPSO pytest套件
+│   ├── test_baseline_algorithms.py  # 基线算法测试
+│   ├── test_experiment_protocol.py  # 实验协议测试
+│   ├── test_metrics.py              # 指标计算测试
 │   ├── test_performance.py         # 性能基准测试
 │   ├── test_visualize.py           # 可视化测试
 │   └── test_gpu.py                 # GPU加速测试
 │
-├── docs/                       # 技术文档
-│   ├── mopso_manual.md             # MOPSO-DT技术手册
-│   ├── decomposition_guide.md      # 区域分解算法详解
-│   └── PARETO_SOLUTIONS.md         # Pareto解生成过程说明
+├── docs/                       # 论文主源与本地工具说明
+│   ├── THESIS_MIGRATION_RULES.md
+│   ├── TONGJI_TEMPLATE_HANDOFF.md
+│   ├── LOCAL_TOOLING.md
+│   ├── PROJECT_SYSTEM_EXPLANATION.md
+│   ├── THESIS_EVIDENCE_MAP.md
+│   └── THESIS_FINALIZATION_GUIDE.md
 │
 ├── figures/                    # 可视化输出
-├── paper/                      # 论文材料
+├── TongjiThesis-1.4.3/         # 当前论文主源与同济模板
+├── TongjiThesis-1.4.0/         # 旧版本地论文容器，保留作对照
+├── results/                    # 结构化实验结果
+├── reports/                    # 审计与评估报告
 ├── pyproject.toml              # 项目配置
 ├── requirements.txt            # Python依赖
 └── README.md
@@ -65,6 +83,9 @@ python experiments/quick_compare.py
 # MOPSO参数调优
 python experiments/tune_mopso.py
 
+# 基线算法对比
+python experiments/compare_algorithms.py
+
 # 综合实验（大区域 + Pareto分析 + 权重分析）
 python experiments/experiment_comprehensive.py
 
@@ -73,6 +94,18 @@ python experiments/experiment_paper_aligned.py
 
 # 挑战性场景
 python experiments/experiment_challenging.py
+```
+
+### 同步与审计结果
+
+```powershell
+# 将实验输出同步到 results/
+powershell -ExecutionPolicy Bypass -File tools/sync_results.ps1
+
+# 生成表格、对比图和消融结果摘要
+python tools/generate_tables.py
+python tools/generate_comparison_figures.py
+python tools/summarize_ablation_results.py
 ```
 
 ### 运行测试
@@ -114,7 +147,7 @@ mopso = MOPSO_DT(
 
 ### 区域分解 (`src/decomposition.py`)
 
-将复杂多边形（含空洞、凹顶点）分解为凸多边形并分配二进制编码，详见 `docs/decomposition_guide.md`。
+将复杂多边形（含空洞、凹顶点）分解为凸多边形并分配二进制编码。
 
 ### 坐标变换 (`src/coordinate_transform.py`)
 
@@ -167,11 +200,16 @@ MOPSO-DT 优化
 | 超体积(HV) | 0.0399 | 0.0498 | +25% |
 | f2范围(多样性) | 0.0013 | 0.0048 | +160% |
 
-## 详细文档
+## 论文主源文档
 
-- `docs/mopso_manual.md` — MOPSO-DT技术手册
-- `docs/decomposition_guide.md` — 区域分解算法详解
-- `docs/PARETO_SOLUTIONS.md` — Pareto解生成过程说明
+- `docs/THESIS_MIGRATION_RULES.md` — 论文主源维护规则
+- `docs/TONGJI_TEMPLATE_HANDOFF.md` — 同济模板入口与章节结构
+- `docs/LOCAL_TOOLING.md` — 本地 IDE 与 agent 配置迁移记录
+- `docs/PROJECT_SYSTEM_EXPLANATION.md` — 项目系统组成与模块关系说明
+- `docs/THESIS_EVIDENCE_MAP.md` — 实验结果、审计报告与论文论断映射
+- `docs/THESIS_FINALIZATION_GUIDE.md` — 最终论文整理与提交前检查指南
+- `reports/README.md` — 审计报告目录说明
+- `results/README.md` — 结构化结果目录说明
 
 ## 许可证
 
