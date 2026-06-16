@@ -44,23 +44,23 @@ RESULTS_DIR = os.path.join(PROJECT_ROOT, "results")
 FIG_DIR = os.path.join(PROJECT_ROOT, "TongjiThesis-1.4.3", "figures")
 
 METHOD_LABELS = {
-    "ours": "MOPSO-DT (ours)",
+    "ours": "MOPSO-DT",
     "mopso_legacy": "MOPSO-DT legacy",
     "nsga2": "NSGA-II-DT",
     "moead": "MOEA/D-DT",
     "spea2": "SPEA2-DT",
     "random": "Random",
-    "ours_transform": "Transform",
-    "direct_physical": "Direct",
+    "ours_transform": "坐标变换",
+    "direct_physical": "直接物理空间",
 }
 
 BAR_LABELS = {
-    "ours": "Ours",
-    "mopso_legacy": "Leg.",
+    "ours": "MOPSO",
+    "mopso_legacy": "Legacy",
     "nsga2": "NSGA",
     "moead": "MOEA",
     "spea2": "SPEA2",
-    "random": "Rand.",
+    "random": "Random",
 }
 
 COLORS = {
@@ -79,7 +79,9 @@ def configure_style() -> None:
     plt.rcParams.update(
         {
             "font.size": 10,
-            "font.family": "serif",
+            "font.sans-serif": ["SimHei", "Microsoft YaHei", "DejaVu Sans"],
+            "font.family": "sans-serif",
+            "axes.unicode_minus": False,
             "axes.labelsize": 10,
             "xtick.labelsize": 9,
             "ytick.labelsize": 9,
@@ -166,7 +168,7 @@ def plot_algorithm_pareto_overlay(data: Dict, scenario: str = "challenging") -> 
             zorder=3,
         )
     ax.set_xlabel("ECR")
-    ax.set_ylabel(r"$J_{\min}$ (W/m$^2$)")
+    ax.set_ylabel(r"Equivalent $J_{\min}$")
     ax.grid(alpha=0.18)
     ax.legend(frameon=False, ncol=2)
     save(fig, "algorithm_pareto_overlay.pdf")
@@ -198,8 +200,8 @@ def plot_algorithm_metrics_bars(data: Dict, scenario: str = "challenging") -> No
         ax.bar(x, means, yerr=stds, capsize=2.5, color=colors, alpha=0.88)
         ax.set_ylabel(label)
         ax.set_xticks(x)
-        ax.set_xticklabels(tick_labels, rotation=0, ha="center")
-        ax.tick_params(axis="x", labelsize=8)
+        ax.set_xticklabels(tick_labels, rotation=25, ha="right")
+        ax.tick_params(axis="x", labelsize=7)
         ax.grid(axis="y", alpha=0.18)
         if means:
             best_idx = int(np.argmax(means) if higher_better else np.argmin(means))
@@ -281,21 +283,28 @@ def plot_boundary_coverage_map(data: Dict) -> None:
         covered = boundary_coverage_mask(positions, boundary_points, scenario.radar_configs)
         x, y = scenario.region.exterior.xy
         ax.plot(x, y, color="black", linewidth=1.0)
-        ax.scatter(bx[~covered], by[~covered], s=10, color="#D55E00", alpha=0.75, label="uncovered")
-        ax.scatter(bx[covered], by[covered], s=10, color="#009E73", alpha=0.75, label="covered")
+        ax.scatter(bx[~covered], by[~covered], s=10, color="#D55E00", alpha=0.75, label="未覆盖")
+        ax.scatter(bx[covered], by[covered], s=10, color="#009E73", alpha=0.75, label="已覆盖")
         ax.scatter(positions[:, 0], positions[:, 1], marker="^", s=42, color="#0072B2", edgecolors="white", linewidth=0.4)
         ax.set_aspect("equal")
         ax.set_xlabel("x (km)")
         ax.set_ylabel("y (km)")
         ax.text(
-            0.02,
             0.98,
-            f"{METHOD_LABELS.get(run['method'], run['method'])}\nBoundary ECR={run['boundary_ecr']:.2f}",
+            0.96,
+            f"{METHOD_LABELS.get(run['method'], run['method'])}\n边界ECR={run['boundary_ecr']:.2f}",
             transform=ax.transAxes,
+            ha="right",
             va="top",
             bbox=dict(facecolor="white", edgecolor="none", alpha=0.82),
         )
-    axes[0].legend(frameon=False, loc="lower left")
+        ax.legend(
+            frameon=False,
+            loc="upper right",
+            bbox_to_anchor=(0.98, 0.78),
+            borderaxespad=0.0,
+            handletextpad=0.35,
+        )
     save(fig, "boundary_coverage_map.pdf")
 
 

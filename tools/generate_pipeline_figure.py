@@ -1,14 +1,25 @@
 """Generate Fig. 4.7 MOPSO-DT iteration pipeline."""
 
+from __future__ import annotations
+
+import os
+
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
 from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FIG_DIR = ROOT / "figures"
 THESIS_FIG_DIR = ROOT / "TongjiThesis-1.4.3" / "figures"
+
+FONT_PATHS = [
+    Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "simhei.ttf",
+    Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "simsun.ttc",
+]
+FONT = FontProperties(fname=str(next((p for p in FONT_PATHS if p.exists()), FONT_PATHS[0])))
 
 
 def add_box(ax, x, y, w, h, lines):
@@ -29,8 +40,8 @@ def add_box(ax, x, y, w, h, lines):
         ha="center",
         va="center",
         multialignment="center",
-        fontsize=10.5,
-        family="Times New Roman",
+        fontsize=12.5,
+        fontproperties=FONT,
         linespacing=1.0,
         color="#111111",
     )
@@ -56,20 +67,20 @@ def main():
     ROOT_FIG_DIR.mkdir(parents=True, exist_ok=True)
     THESIS_FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(8.4, 2.1))
-    ax.set_xlim(0, 10)
+    fig, ax = plt.subplots(figsize=(9.2, 2.15))
+    ax.set_xlim(0, 11)
     ax.set_ylim(0, 2.35)
     ax.axis("off")
 
-    w, h = 1.45, 0.78
+    w, h = 1.55, 0.78
     y = 1.2
-    xs = [0.15, 2.15, 4.15, 6.15, 8.15]
+    xs = [0.15, 2.35, 4.55, 6.75, 8.95]
     labels = [
-        ["Initialize", "particles"],
-        ["Update", "continuous", "+ binary"],
-        ["Map to", "physical", "nodes"],
-        ["Evaluate", "ECR", "/ Jmin"],
-        ["Update", "archive"],
+        ["初始化", "粒子"],
+        ["更新", "混合变量"],
+        ["映射到", "物理节点"],
+        ["计算ECR", r"与$J_{\min}$"],
+        ["更新", "档案"],
     ]
 
     for x, lines in zip(xs, labels):
@@ -77,7 +88,7 @@ def main():
 
     cy = y + h / 2
     for left in xs[:-1]:
-        add_arrow(ax, (left + w + 0.08, cy), (left + 2.0 - 0.10, cy))
+        add_arrow(ax, (left + w + 0.08, cy), (left + 2.2 - 0.10, cy))
 
     # Feedback path stays clearly below all boxes and returns to the initializer.
     bottom_y = y - 0.26
@@ -88,13 +99,13 @@ def main():
     add_arrow(ax, (first_cx, bottom_y), (first_cx, y - 0.04))
 
     ax.text(
-        5,
+        5.5,
         0.28,
-        "repeat until evaluation budget is exhausted",
+        "重复执行，直到评价预算耗尽",
         ha="center",
         va="center",
-        fontsize=9.5,
-        family="Times New Roman",
+        fontsize=11.5,
+        fontproperties=FONT,
         color="#333333",
     )
 

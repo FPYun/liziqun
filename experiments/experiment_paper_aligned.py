@@ -20,7 +20,7 @@ import json
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -315,9 +315,9 @@ def visualize_results(results, figure_dir=None):
                          c=np.arange(len(objectives)), cmap='viridis',
                          s=80, alpha=0.7, edgecolors='black', linewidth=0.5,
                          zorder=3)
-    ax2.set_xlabel('ECR', fontsize=12)
-    ax2.set_ylabel(r'$J_{\min}$ (W/m$^2$)', fontsize=12)
-    ax2.set_title(f'ECR-$J_{{\\min}}$前沿 ({len(objectives)}个解)', fontsize=14)
+    ax2.set_xlabel('有效覆盖率 ECR', fontsize=12)
+    ax2.set_ylabel(r'最小等效干扰强度 $J_{\min}$', fontsize=12)
+    ax2.set_title(f'覆盖率-最小干扰强度前沿（{len(objectives)}个解）', fontsize=14)
     ax2.grid(True, alpha=0.3)
     ax2.legend(frameon=False, fontsize=9)
     plt.colorbar(scatter, ax=ax2, label='解序号')
@@ -371,9 +371,9 @@ def visualize_results(results, figure_dir=None):
                edgecolors='black', linewidth=1, zorder=5)
     ax3.set_xlabel('X (km)', fontsize=12)
     ax3.set_ylabel('Y (km)', fontsize=12)
-    ax3.set_title('ECR热力图', fontsize=14)
+    ax3.set_title('有效覆盖率热力图', fontsize=14)
     ax3.set_aspect('equal')
-    plt.colorbar(im3, ax=ax3, label='探测概率')
+    plt.colorbar(im3, ax=ax3, label='联合探测概率')
 
     # 图4: J_min热力图
     ax4 = axes[1, 1]
@@ -401,9 +401,9 @@ def visualize_results(results, figure_dir=None):
                edgecolors='black', linewidth=1, zorder=5)
     ax4.set_xlabel('X (km)', fontsize=12)
     ax4.set_ylabel('Y (km)', fontsize=12)
-    ax4.set_title('J_min热力图', fontsize=14)
+    ax4.set_title('等效干扰强度热力图', fontsize=14)
     ax4.set_aspect('equal')
-    plt.colorbar(im4, ax=ax4, label='干扰功率密度 (W/m^2)')
+    plt.colorbar(im4, ax=ax4, label='等效干扰强度')
 
     plt.tight_layout()
     save_path = os.path.join(figure_dir, 'paper_aligned_results.png')
@@ -418,9 +418,9 @@ def visualize_results(results, figure_dir=None):
                         c=np.arange(len(objectives)), cmap='viridis',
                         s=100, alpha=0.7, edgecolors='black', linewidth=0.5,
                         zorder=3)
-    ax.set_xlabel('ECR', fontsize=14)
-    ax.set_ylabel(r'$J_{\min}$ (W/m$^2$)', fontsize=14)
-    ax.set_title(f'ECR-$J_{{\\min}}$前沿 ({len(objectives)}个解)', fontsize=16)
+    ax.set_xlabel('有效覆盖率 ECR', fontsize=14)
+    ax.set_ylabel(r'最小等效干扰强度 $J_{\min}$', fontsize=14)
+    ax.set_title(f'覆盖率-最小干扰强度前沿（{len(objectives)}个解）', fontsize=16)
     ax.grid(True, alpha=0.3)
     ax.legend(frameon=False, fontsize=11)
     plt.colorbar(scatter, ax=ax, label='解序号')
@@ -435,9 +435,9 @@ def visualize_results(results, figure_dir=None):
         fig3, ax = plt.subplots(figsize=(8, 6))
         correlation = np.corrcoef(ecr_array, j_min_array)[0, 1]
         ax.scatter(ecr_array, j_min_array, c='purple', s=80, alpha=0.7)
-        ax.set_xlabel('ECR', fontsize=14)
-        ax.set_ylabel('J_min (W/m^2)', fontsize=14)
-        ax.set_title(f'ECR vs J_min (相关系数: {correlation:.3f})', fontsize=16)
+        ax.set_xlabel('有效覆盖率 ECR', fontsize=14)
+        ax.set_ylabel('最小等效干扰强度 Jmin', fontsize=14)
+        ax.set_title(f'覆盖率-最小干扰强度相关性（相关系数: {correlation:.3f}）', fontsize=16)
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
         save_path3 = os.path.join(figure_dir, 'paper_aligned_correlation.png')

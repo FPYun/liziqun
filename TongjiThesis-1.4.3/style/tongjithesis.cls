@@ -331,6 +331,7 @@
   \RequirePackage[
     backend=biber,
     style=gb7714-2015,
+    gbmedium=false,
     natbib=true,
   ]{biblatex}
   % 参考文献序号左对齐至页边距，悬挂统一为 0.74cm（与 Word 模板一致）。
@@ -343,7 +344,7 @@
           \printfield{labelnumber}}}
        {\setlength{\labelwidth}{\labelnumberwidth}%
         \ifdim\labelwidth<0.74cm \setlength{\labelwidth}{0.74cm}\fi
-        \setlength{\labelsep}{0pt}%
+        \setlength{\labelsep}{0.5em}%
         \setlength{\leftmargin}{\labelwidth}%
         \setlength{\itemindent}{0pt}%
         \setlength{\itemsep}{\bibitemsep}%
@@ -846,15 +847,13 @@
   \SetKwInput{KwIn}{输入}
   \SetKwInput{KwOut}{输出}
   \gdef\algocf@Vspace{\vskip\baselineskip\relax}
-  \AtBeginEnvironment{algorithm}{\linespread{1.0}\selectfont}
   \AfterEndEnvironment{algorithm}{\vspace{\baselineskip}}
 \else
   \renewcommand{\algorithmicrequire}{\textbf{输入: }}
   \renewcommand{\algorithmicensure}{\textbf{输出: }}
-  \AtBeginEnvironment{algorithmic}{\linespread{1.0}\selectfont}
   \renewenvironment{algorithm}
   {
-    \vskip\baselineskip
+    \vskip 20pt
     \refstepcounter{algorithm}% New algorithm
     \hrule height.8pt depth0pt \kern2pt% \@fs@pre for \@fs@ruled
     \renewcommand{\caption}[2][\relax]{% 使用中文 caption
@@ -868,7 +867,7 @@
     }
   }{
     \kern2pt\hrule\relax
-    \vskip\baselineskip
+    \vskip 20pt
   }% \@fs@post for \@fs@ruled
 \fi
 

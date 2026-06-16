@@ -16,17 +16,22 @@
 \tjbibresource{bib/note.bib}
 \input{math_commands.tex}
 
+% Table formatting: 小五号宋体/Times，表内18磅行距，表题小五号居中。
+\renewcommand{\tjfonttable}{\fontsize{9pt}{18pt}\selectfont\songti}
+\DeclareCaptionFont{tj@tablecaption}{\fontsize{9pt}{13.5pt}\selectfont\songti}
+\captionsetup[table]{font=tj@tablecaption,justification=centering,singlelinecheck=false,skip=0pt}
 
 % Keep display equations and float spacing visually consistent across chapters.
 \makeatletter
 \AtBeginDocument{%
-  \setlength{\abovedisplayskip}{6pt plus 2pt minus 2pt}%
-  \setlength{\belowdisplayskip}{6pt plus 2pt minus 2pt}%
-  \setlength{\abovedisplayshortskip}{4pt plus 2pt minus 2pt}%
-  \setlength{\belowdisplayshortskip}{4pt plus 2pt minus 2pt}%
-  \setlength{\textfloatsep}{8pt plus 2pt minus 2pt}%
-  \setlength{\floatsep}{6pt plus 2pt minus 2pt}%
-  \setlength{\intextsep}{6pt plus 2pt minus 2pt}%
+  \setlength{\abovedisplayskip}{0pt}%
+  \setlength{\belowdisplayskip}{0pt}%
+  \setlength{\abovedisplayshortskip}{0pt}%
+  \setlength{\belowdisplayshortskip}{0pt}%
+  \setlength{\jot}{3pt}%
+  \setlength{\textfloatsep}{18pt plus 2pt minus 2pt}%
+  \setlength{\floatsep}{18pt plus 2pt minus 2pt}%
+  \setlength{\intextsep}{18pt plus 2pt minus 2pt}%
   \setlength{\abovecaptionskip}{3pt plus 1pt minus 1pt}%
   \setlength{\belowcaptionskip}{0pt plus 1pt minus 1pt}%
   \setlength{\@fptop}{0pt}%

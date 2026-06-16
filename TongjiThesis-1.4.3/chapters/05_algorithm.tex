@@ -32,7 +32,6 @@
 在图示流程基础上，算法~\ref{alg:decomposition}给出了区域凸分解的主要步骤。
 
 \Needspace{0.36\textheight}
-\noindent\begin{minipage}{\linewidth}
 \begin{algorithm}
 \caption{区域凸分解算法}
 \label{alg:decomposition}
@@ -45,14 +44,13 @@
     \IF{存在空洞}
         \STATE 使用双线段切割消除空洞~\cite{Chazelle1982}
     \ENDIF
-    \STATE 对无空洞多边形进行Delaunay三角剖分
+    \STATE 对无空洞多边形进行约束三角剖分
     \STATE 贪心合并相邻三角形形成凸多边形
 \ENDFOR
 \STATE 为每个凸多边形$P_k$分配唯一的$N_{\text{bin}}$位二进制编码
 \STATE 返回 $\mathcal{P}, N_{\text{bin}}$
 \end{algorithmic}
 \end{algorithm}
-\end{minipage}
 
 算法~\ref{alg:decomposition}输出的凸多边形并集与原区域一致，且每个子区域具有唯一二进制编码。其复杂度为$O(n\log n)$，其中$n$为多边形顶点数。本文后续只在这些编码区域内搜索，避免在原始非凸边界上反复做可行性修正。
 
@@ -88,14 +86,16 @@
 \STATE 输入：凸多边形$P_k$，归一化坐标$(\hx, \hy) \in [0,1]^2$
 \STATE 输出：物理坐标$(x, y) \in P_k$
 \STATE 计算$P_k$的轴对齐包围盒：$[x_{\min}, x_{\max}] \times [y_{\min}, y_{\max}]$
-\FOR{$\hx$对应的垂直线$x = x_{\min} + \hx \cdot (x_{\max} - x_{\min})$}
-    \STATE 寻找该垂直线与$P_k$边界的所有交点
-\ENDFOR
-\FOR{$\hy$对应的水平线$y = y_{\min} + \hy \cdot (y_{\max} - y_{\min})$}
-    \STATE 寻找该水平线与$P_k$边界的所有交点
-\ENDFOR
-\STATE 在各交点中选择距离$(\hx, \hy)$最近的投影参考点$\mathbf{q}$
-\STATE 将归一化坐标映射到$\mathbf{q}$附近的物理坐标$(x, y)$
+\STATE 根据$\hx$确定垂直扫描线横坐标：$x = x_{\min} + \hx \cdot (x_{\max} - x_{\min})$
+\STATE 构造垂直扫描线$L_x=\{(x,y)\mid y\in[y_{\min},y_{\max}]\}$
+\STATE 逐边计算$L_x$与$P_k$边界的交点，得到交点集合$\mathcal{I}_x$
+\STATE 合并由顶点重合或数值误差产生的重复交点
+\STATE 按纵坐标对$\mathcal{I}_x$升序排序
+\STATE 根据凸多边形内部线段确定当前$x$处的下边界$y_{\mathrm{low}}(x)$
+\STATE 根据同一有效线段确定当前$x$处的上边界$y_{\mathrm{high}}(x)$
+\STATE 若$y_{\mathrm{high}}(x)=y_{\mathrm{low}}(x)$，令$y=y_{\mathrm{low}}(x)$
+\STATE 否则令$y = y_{\mathrm{low}}(x) + \hy \cdot (y_{\mathrm{high}}(x)-y_{\mathrm{low}}(x))$
+\STATE 得到物理空间中的可行候选点$(x,y)$
 \STATE 返回 $(x, y)$
 \end{algorithmic}
 \end{algorithm}
@@ -116,47 +116,48 @@
 \subsection{粒子编码}
 
 每个粒子代表一种完整的雷达部署方案。对于$J$个雷达和$N_{\text{bin}}$位二进制区域编码，粒子的位置向量为：
-
 \begin{equation}
 \mathbf{\Phi} = [\hx_1, \hy_1, b_1^1, \ldots, b_1^{N_{\text{bin}}}, \hx_2, \hy_2, b_2^1, \ldots, b_J^{N_{\text{bin}}}]
 \label{eq:particle_encoding}
 \end{equation}
-
-其中$(\hx_j, \hy_j) \in [0,1]^2$为第$j$个雷达的归一化坐标（连续变量），$b_j^1, \ldots, b_j^{N_{\text{bin}}} \in \{0,1\}$为区域索引的二进制编码（离散变量）。该编码同时优化连续坐标和离散区域选择，属于混合变量优化问题。
+\noindent{}其中$(\hx_j, \hy_j) \in [0,1]^2$为第$j$个雷达的归一化坐标（连续变量），$b_j^1, \ldots, b_j^{N_{\text{bin}}} \in \{0,1\}$为区域索引的二进制编码（离散变量）。该编码同时优化连续坐标和离散区域选择，属于混合变量优化问题。
 
 \subsection{更新规则}
 
 连续变量更新采用标准PSO速度-位置更新：
-
-\begin{equation}
-\begin{aligned}
+\vspace{-0.5\baselineskip}
+\begin{align}
 v_i^d(t+1) ={}& w(t) \cdot v_i^d(t)
- + c_1 \cdot r_1 \cdot \left(p_i^{d,\text{best}} - x_i^d(t)\right) \\
+ + c_1 \cdot r_1 \cdot \left(p_i^{d,\text{best}} - x_i^d(t)\right) \notag\\
 & + c_2 \cdot r_2 \cdot \left(g^{d,\text{best}} - x_i^d(t)\right)
-\end{aligned}
 \label{eq:continuous_update}
-\end{equation}
+\end{align}
+\vspace{-1.7\baselineskip}
 
 二进制变量更新通过交叉和变异操作完成：
-
-\begin{equation}
+\vspace{-0.5\baselineskip}
+\refstepcounter{equation}\label{eq:binary_crossover}
+\begin{equation*}
 \tilde{b}_j^k(t+1) =
 \begin{cases}
 b_{p,j}^{k,\text{best}}, & r_1 < p_c,\ r_2 < \frac{c_1}{c_1+c_2}, \\
 b_{g,j}^{k,\text{best}}, & r_1 < p_c,\ r_2 \geq \frac{c_1}{c_1+c_2}, \\
 b_j^k(t), & r_1 \geq p_c,
 \end{cases}
-\label{eq:binary_crossover}
-\end{equation}
-其中$b_{p,j}^{k,\text{best}}$和$b_{g,j}^{k,\text{best}}$分别表示个体最优和全局领导者中的区域选择编码，$p_c$为交叉概率。随后执行独立变异：
-\begin{equation}
+\tag*{\raisebox{-1.6\baselineskip}{(\theequation)}}
+\end{equation*}
+\vspace{-0.25\baselineskip}
+\noindent{}其中$b_{p,j}^{k,\text{best}}$和$b_{g,j}^{k,\text{best}}$分别表示个体最优和全局领导者中的区域选择编码，$p_c$为交叉概率。随后执行独立变异：
+\refstepcounter{equation}\label{eq:binary_mutation}
+\begin{equation*}
 b_j^k(t+1) =
 \begin{cases}
 1-\tilde{b}_j^k(t+1), & r_3 < p_m, \\
 \tilde{b}_j^k(t+1), & r_3 \geq p_m,
 \end{cases}
-\label{eq:binary_mutation}
-\end{equation}
+\tag*{\raisebox{-0.8\baselineskip}{(\theequation)}}
+\end{equation*}
+\vspace{-1.0\baselineskip}
 
 \subsection{动态参数策略}
 
@@ -191,9 +192,9 @@ b_j^k(t+1) =
 
 算法\ref{alg:mopso_dt}汇总了MOPSO-DT部署优化流程。输入为部署区域、节点数量和优化参数；预处理阶段完成区域凸分解和粒子初始化；迭代阶段依次执行领导者选择、连续坐标更新、二进制编码更新、坐标映射、目标函数评估和档案维护。输出的$\mathcal{A}$是一组非支配部署方案，而不是单个固定解。
 
-主循环中连续变量和二进制变量承担不同作用。连续变量决定每个节点在所选凸子区域内的归一化坐标，坐标变换负责把归一化坐标映射为真实部署位置；二进制变量决定节点所属的凸子区域，使粒子既能在局部子区域内细化搜索，也能在不同子区域之间改变组合关系。这样处理后，粒子更新仍保留PSO的速度-位置迭代形式，但每一次目标函数评估前都会经过可行域映射，避免候选节点落到非部署区域、空洞或不连通区域之外。
+主循环中，连续变量给出节点在所选凸子区域内的归一化坐标，并经算法~\ref{alg:coordinate_transform}映射为物理位置；二进制变量决定节点所属凸子区域。两类变量共同保留PSO更新形式，同时在评估前完成可行域约束，避免节点落入非部署区域、空洞或不连通区域之外。
 
-从任务评估角度看，每轮迭代并不直接追求单一目标的最优点，而是把新生成的部署方案放入ECR和$J_{\min}$构成的双目标空间中比较。个体最优记录用于保留粒子自身历史上更优的部署方向，外部档案则保存群体层面发现的非支配方案。当档案规模超过上限时，拥挤距离截断优先保留前沿上分布较稀疏的解，从而让最终输出同时包含偏向广域覆盖和偏向重点压制的候选部署。该机制使算法结果更适合电子对抗任务中的方案选择，而不是只给出一个难以解释的单点配置。
+评估时，新部署方案在ECR和$J_{\min}$双目标空间中比较；个体最优保存粒子历史可行方向，外部档案保存群体非支配方案，并在超限时用拥挤距离保留稀疏前沿解。因此，最终输出仍是一组覆盖--压制折中候选方案。
 
 \Needspace{0.48\textheight}
 \begin{algorithm}
@@ -215,13 +216,23 @@ b_j^k(t+1) =
         \STATE 更新二进制编码：式(\ref{eq:binary_crossover})--(\ref{eq:binary_mutation})
         \STATE 坐标变换（算法~\ref{alg:coordinate_transform}）$\to$ 物理位置
         \STATE 评估目标函数$f_1, f_2$
+\algstore{mopso_dt_break}
+\end{algorithmic}
+\end{algorithm}
+
+\vskip 20pt
+\noindent\makebox[\linewidth][r]{\zihao{-5}\songti 续算法~\ref{alg:mopso_dt}\hspace{2em}}\par
+\hrule height.8pt depth0pt \kern2pt
+\begin{algorithmic}[1]
+\algrestore{mopso_dt_break}
         \STATE 更新个体最优$\mathbf{p}_i^{\text{best}}$（Pareto支配关系）
     \ENDFOR
     \STATE 更新外部档案$\mathcal{A}$（Pareto支配+拥挤距离截断）
 \ENDFOR
 \STATE 返回 $\mathcal{A}$
 \end{algorithmic}
-\end{algorithm}
+\kern2pt\hrule\relax
+\vskip 20pt
 
 从迭代执行角度看，MOPSO-DT的核心循环可概括为图~\ref{fig:mopso_iteration_pipeline}。粒子初始化后反复经历速度/位置更新、坐标变换、目标函数评估和Pareto档案更新；惯性权重$w(t)$和变异概率$p_m(t)$随迭代动态调整，使前期保持较强全局探索，后期逐步转向局部收敛与前沿补全。
 
@@ -250,9 +261,11 @@ MOPSO-DT算法的主要计算开销来自每轮迭代中的粒子评估。对于
     \item 空间复杂度：$O(N_P \cdot J \cdot (2 + N_{\text{bin}}) + |\mathcal{A}|)$
 \end{itemize}
 
-在实际应用中，通过Numba JIT编译和向量化矩阵运算，MOPSO-DT可实现显著的运行时加速。以$T_{\max}=500, N_P=50, M=100, J=8$的典型配置为例，整个优化过程在消费级CPU（Intel Core i7-13700H）上耗时156.3秒（约2.6分钟）。
+在实际应用中，通过Numba即时编译（Just-in-Time, JIT）和向量化矩阵运算，MOPSO-DT可实现显著的运行时加速。以$T_{\max}=500, N_P=50, M=100, J=8$的典型配置为例，整个优化过程在消费级中央处理器（Central Processing Unit, CPU，Intel Core i7-13700H）上耗时156.3秒（约2.6分钟）。
 
 \FloatBarrier
+
+\ctexset{paragraph/number={\AlphAlph{\value{paragraph}}}}
 
 \paragraph{区域分解对搜索空间的作用}
 区域分解的目的不是改变原始部署任务，而是将复杂区域中的连续搜索过程组织得更加明确。对于不规则任务区域，若直接在全局坐标系中搜索，粒子位置更新既要满足边界约束，又要兼顾覆盖质量和网络性能，搜索空间中会存在大量无效或低质量候选点。通过先对区域进行结构化划分，算法可以把候选雷达位置限制在具有明确几何意义的子区域内，使初始化、速度更新和边界修正都具有更稳定的参考范围。这样处理后，粒子群搜索不再完全依赖随机扰动探索可行区域，而是可以围绕分解后的区域结构展开搜索，从而有助于减少无效迭代。
@@ -264,7 +277,9 @@ MOPSO-DT算法的主要计算开销来自每轮迭代中的粒子评估。对于
 MOPSO-DT 中的外部档案用于保存当前搜索过程中发现的非支配解。档案维护不仅影响最终输出的 Pareto 解集，也会反过来影响后续粒子的引导方向。若档案只保留少数高性能解，算法可能过早集中在局部区域，导致前沿覆盖不足；若档案保留过多相似解，则可能降低搜索效率。本文结合拥挤度和非支配排序思想维护候选解，使档案在保留优秀解的同时尽量维持目标空间分布。惯性权重和变异策略则用于平衡局部开发与全局探索：前者控制粒子延续原有搜索方向的程度，后者在搜索停滞或前沿收缩时提供额外扰动。
 
 \paragraph{方法适用性与局限性}
-本文方法主要面向二维任务区域内的离线部署优化，尤其适合需要同时考虑部署代价、区域边界和最小观测性能的场景。由于算法输出的是一组 Pareto 候选方案，最终工程应用仍需要结合实际雷达数量、预算、地形限制和任务偏好选择具体部署点。本文实验主要验证静态区域部署问题中的优化效果，并未直接处理目标高速运动、雷达实时重构、通信链路拥塞等动态因素。因此，本文结论应理解为对静态部署规划流程的验证，而不是对所有雷达网络任务形式的完整覆盖。
+本文方法主要面向二维任务区域内的离线部署优化，尤其适合需要同时考虑覆盖有效性、区域边界和最小压制强度的场景。由于算法输出的是一组 Pareto 候选方案，最终工程应用仍需要结合实际雷达数量、预算、地形限制和任务偏好选择具体部署点。本文实验主要验证静态区域部署问题中的优化效果，并未直接处理目标高速运动、雷达实时重构、通信链路拥塞等动态因素。因此，本文结论应理解为对静态部署规划流程的验证，而不是对所有雷达网络任务形式的完整覆盖。
+
+\ctexset{paragraph/number={\alphalph{\value{paragraph}}}}
 
 \section{本章小结}
 

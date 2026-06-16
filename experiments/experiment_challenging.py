@@ -12,7 +12,7 @@ import json
 # Fix GBK encoding for emoji in paths
 sys.stdout.reconfigure(encoding='utf-8')
 
-plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans']
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -170,9 +170,9 @@ def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array, figu
     _plot_sorted_front(ax1, ecr_array, j_min_array)
     ax1.scatter(ecr_array, j_min_array, c='blue', s=80, alpha=0.7,
                 edgecolors='black', zorder=3)
-    ax1.set_xlabel('ECR', fontsize=12)
-    ax1.set_ylabel(r'$J_{\min}$', fontsize=12)
-    ax1.set_title(f'ECR-$J_{{\\min}}$前沿 (共{len(pareto_solutions)}个解)', fontsize=14)
+    ax1.set_xlabel('有效覆盖率 ECR', fontsize=12)
+    ax1.set_ylabel(r'最小等效干扰强度 $J_{\min}$', fontsize=12)
+    ax1.set_title(f'覆盖率-最小干扰强度前沿（{len(pareto_solutions)}个解）', fontsize=14)
     ax1.grid(True, alpha=0.3)
     ax1.legend(frameon=False, fontsize=9)
 
@@ -181,28 +181,28 @@ def visualize_results(pareto_solutions, objectives, ecr_array, j_min_array, figu
     _plot_sorted_front(ax2, ecr_array, j_min_array)
     scatter = ax2.scatter(ecr_array, j_min_array, c=objectives[:, 0], s=80,
                           cmap='viridis', alpha=0.7, zorder=3)
-    ax2.set_xlabel('ECR', fontsize=12)
-    ax2.set_ylabel('J_min (真实干扰功率)', fontsize=12)
-    ax2.set_title('ECR vs J_min (颜色=f1值)', fontsize=14)
+    ax2.set_xlabel('有效覆盖率 ECR', fontsize=12)
+    ax2.set_ylabel(r'最小等效干扰强度 $J_{\min}$', fontsize=12)
+    ax2.set_title('覆盖率-最小干扰强度关系（颜色为覆盖损失）', fontsize=14)
     ax2.grid(True, alpha=0.3)
     ax2.legend(frameon=False, fontsize=9)
-    plt.colorbar(scatter, ax=ax2, label='f1')
+    plt.colorbar(scatter, ax=ax2, label=r'覆盖损失 $f_1$')
 
     # 图3: ECR分布直方图
     ax3 = axes[1, 0]
     ax3.hist(ecr_array, bins=min(20, len(np.unique(ecr_array))), alpha=0.7, color='green', edgecolor='black')
-    ax3.set_xlabel('ECR', fontsize=12)
+    ax3.set_xlabel('有效覆盖率 ECR', fontsize=12)
     ax3.set_ylabel('频数', fontsize=12)
-    ax3.set_title(f'ECR分布 (范围: {ecr_array.min():.3f}-{ecr_array.max():.3f})', fontsize=14)
+    ax3.set_title(f'有效覆盖率分布（范围: {ecr_array.min():.3f}-{ecr_array.max():.3f}）', fontsize=14)
 
     # 图4: 相关性分析
     ax4 = axes[1, 1]
     correlation = np.corrcoef(ecr_array, j_min_array)[0, 1]
     _plot_sorted_front(ax4, ecr_array, j_min_array)
     ax4.scatter(ecr_array, j_min_array, c='purple', s=80, alpha=0.7, zorder=3)
-    ax4.set_xlabel('ECR', fontsize=12)
-    ax4.set_ylabel('J_min', fontsize=12)
-    ax4.set_title(f'ECR vs J_min (相关系数: {correlation:.3f})', fontsize=14)
+    ax4.set_xlabel('有效覆盖率 ECR', fontsize=12)
+    ax4.set_ylabel(r'最小等效干扰强度 $J_{\min}$', fontsize=12)
+    ax4.set_title(f'覆盖率-最小干扰强度相关性（相关系数: {correlation:.3f}）', fontsize=14)
     ax4.grid(True, alpha=0.3)
     ax4.legend(frameon=False, fontsize=9)
 
